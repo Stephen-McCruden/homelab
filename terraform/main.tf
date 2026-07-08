@@ -1,72 +1,72 @@
-# 1. Define your exact Kubernetes cluster topology map
-locals {
-k8s_nodes = {
-"k8s-worker-01" = { node = "pve1", vmid = 201, ip = "192.168.0.50/24", cores = 4, memory = 8192 }
-"k8s-worker-02" = { node = "pve2", vmid = 202, ip = "192.168.0.51/24", cores = 4, memory = 8192 }
-"k8s-master-01" = { node = "pve3", vmid = 203, ip = "192.168.0.52/24", cores = 4, memory = 8192 }
-}
+terraform {
+  cloud {
+    # Remember to swap this to match your exact HCP orgination name.
+    organization = "stoof-homelab"
+
+    workspaces {
+      name = "stoof-lab"
+    }
+  }
 }
 
-# 2. Automatically download the Fedora Cloud Base Image onto your nodes
+# 1. Automatically download the Fedora Cloud Base Image onto your nodes
 resource "proxmox_download_file" "fedora_cloud_image" {
-for_each = toset([for k, v in local.k8s_nodes : v.node])
-content_type = "import"
-datastore_id = "local"
-node_name = each.key
-
-url = "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2"
-file_name = "fedora-cloud-base.qcow2"
-
-overwrite           = true
-overwrite_unmanaged = true
+  for_each            = toset([for k, v in var.k8s_nodes : v.node])
+  content_type        = "import"
+  datastore_id        = var.pve_iso_datastore
+  node_name           = each.key
+  url                 = var.os_image_url
+  file_name           = var.os_image_filename
+  overwrite           = true
+  overwrite_unmanaged = true
 }
 
-# 4. Provision the actual Kubernetes Virtual Machines
+# 2. Provision the actual Kubernetes Virtual Machines
 resource "proxmox_virtual_environment_vm" "k8s_nodes" {
-for_each = local.k8s_nodes
-name = each.key
-node_name = each.value.node
-vm_id = each.value.vmid
+  for_each        = var.k8s_nodes
+  name            = each.key
+  node_name       = each.value.node
+  vm_id           = each.value.vmid
 
-stop_on_destroy = true
+  stop_on_destroy = true
 
-cpu {
-cores = each.value.cores
-type = "host"
-}
+  cpu {
+    cores = each.value.cores
+    type  = "host"
+  }
 
-memory {
-dedicated = each.value.memory
-}
+  memory {
+    dedicated = each.value.memory
+  }
 
-agent {
-enabled = true
-}
+  agent {
+    enabled = true
+  }
 
-disk {
-datastore_id = "local-lvm" # <-- Ensure your PVE node storage is named this!
-interface = "scsi0"
-size = 30
-import_from = proxmox_download_file.fedora_cloud_image[each.value.node].id
-}
+  disk {
+    datastore_id  = var.pve_vm_datastore
+    interface     = "scsi0"
+    size          = var.vm_disk_size
+    import_from   = proxmox_download_file.fedora_cloud_image[each.value.node].id
+  }
 
-initialization {
-datastore_id = "local-lvm"
+  initialization {
+    datastore_id = var.pve_vm_datastore
 
-ip_config {
-ipv4 {
-address = each.value.ip
-gateway = "192.168.0.1"
-}
-}
+    ip_config {
+      ipv4 {
+        address = each.value.ip
+        gateway = var.network_gateway
+      }
+    }
 
-user_account {
-username = "stoof"
-keys = [trimspace(file("~/.ssh/id_rsa.pub"))]
-}
-}
+    user_account {
+      username = var.ssh_username
+      keys     = var.ssh_public_keys
+    }
+  }
 
-network_device {
-bridge = "vmbr0"
-}
+  network_device {
+    bridge = var.network_bridge
+  }
 }
