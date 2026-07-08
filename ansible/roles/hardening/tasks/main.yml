@@ -1,0 +1,50 @@
+---
+# 1. SELinux Adjustments for Kubelet access paths
+- name: Put SELinux into permissive status for file system namespace access
+  ansible.posix.selinux:
+    policy: targeted
+    state: permissive
+
+- name: Force SELinux configuration changes to persist across system boots
+  ansible.builtin.replace:
+    path: /etc/selinux/config
+    regexp: '^SELINUX=enforcing'
+    replace: 'SELINUX=permissive'
+
+# 2. Network Firewall Hardening Matrix
+- name: Clear broad public zones and lock down internal node services
+  ansible.posix.firewalld:
+    zone: public
+    service: ssh
+    state: enabled
+    permanent: true
+    immediate: true
+
+- name: Target Master Specific Firewall Port Exceptions
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop:
+    - 6443/tcp
+    - 2379-2380/tcp
+    - 10250/tcp
+    - 10259/tcp
+    - 10257/tcp
+  when: "'master' in group_names"
+
+- name: Target Worker Specific Firewall Port Exceptions
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop:
+    - 10250/tcp
+    - 30000-32767/tcp
+  when: "'workers' in group_names"
+
+# 3. Built-in Verification Loop Execution
+- name: Execute inline security structure verification validation testing
+  ansible.builtin.import_tasks: verify.yml

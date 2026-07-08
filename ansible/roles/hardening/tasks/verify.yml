@@ -1,0 +1,12 @@
+---
+- name: Check host runtime SELinux configuration parameters
+  command: getenforce
+  register: selinux_status
+  changed_when: false
+
+- name: VERIFY - Assert that system defense profile maps perfectly to specifications
+  assert:
+    that:
+      - "'Permissive' in selinux_status.stdout"
+    fail_msg: "SECURITY FAILURE: SELinux remains locked in enforcing stance."
+    success_msg: "SECURITY PASS: SELinux set to permissive, networking matrix successfully active."

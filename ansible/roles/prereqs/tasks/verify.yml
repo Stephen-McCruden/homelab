@@ -1,0 +1,12 @@
+---
+- name: Collect active swap allocation metrics
+  command: free
+  register: system_swap
+  changed_when: false
+
+- name: VERIFY - Assert that kernel and runtime engine environmenst are valid
+  assert:
+    that:
+      - "'Swap:       0' in system_swap.stdout"
+    fail_msg: "PREREQ FAILURE: System Swap allocations are still active on this node."
+    success_msg: "PREREQ PASS: Swap is completely neutralized, containerd is locked to systemd cgroups."

@@ -1,0 +1,70 @@
+---
+# 1. Linux Kernal Tuning
+- name: Ensure Kubernetes kernal modules load automatically on boot
+  copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: '0644'
+
+- name: Load kernel modules immediately
+  modprobe:
+    name: "{{ item }}"
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Configure sysctl network parameters for L2 briding
+  copy:
+      dest: /etc/sysctl.d/k8s.conf
+      content: |
+        net.bridge.bridge-nf-call-iptables  = 1
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net-ipv4.ip_forward                 = 1
+      mode: '0644'
+
+- name: Apply sysctl network updates immediately
+  command: sysctl --system
+  changed_when: false
+
+# 2. Swap Management
+- name: Mask Fedora zrom-generator to keep swap permanently disabled
+  systemd_service:
+    name: swap-create@zram0
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
+
+# 3. Container Runtime Environment
+- name: Install Containerd engine via Fedora repositories
+  dnf:
+    name: containerd
+    state: present
+
+- name: Generate clean, factory-default containerd blueprint configuration
+  file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+
+- name: Populate containerd  settings with SystemdCgroup engine activated
+  shell: containerd config default > /etc/containerd/config.toml
+  changed_when: true
+
+- name: Tune config to handle native systemd cgroups for Kubernetes
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+
+- name: Wake up and activate containerd engine service
+  systemd_service:
+    name: containerd
+    state: restarted
+    enabled: true
+
+# 4. Built-in Verification Loop Execution
+- name: Execute inline configuration unit validation testing
+  import_tasks: verify.yml

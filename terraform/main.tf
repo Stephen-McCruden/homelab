@@ -60,6 +60,10 @@ resource "proxmox_virtual_environment_vm" "k8s_nodes" {
       }
     }
 
+    dns {
+      servers = ["192.168.0.1", "1.1.1.1"]
+    }
+
     user_account {
       username = var.ssh_username
       keys     = var.ssh_public_keys
