@@ -1,6 +1,6 @@
 # FILE PATH: roles/prereqs/defaults/main.yml
 ---
-kubernetes_prereq_packages:
+kubernetes_prerequisite_packages:
   - conntrack-tools
   - containernetworking-plugins
   - curl
@@ -9,4 +9,10 @@ kubernetes_prereq_packages:
   - iproute-tc
   - iptables
   - socat
-kubernetes_kernel_modules: [overlay, br_netfilter]
+kubernetes_kernel_modules:
+  - overlay
+  - br_netfilter
+kubernetes_sysctl_values:
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.bridge.bridge-nf-call-ip6tables: "1"
+  net.ipv4.ip_forward: "1"

@@ -1,4 +1,4 @@
 # FILE PATH: roles/hardening/defaults/main.yml
 ---
+ssh_admin_user: "{{ ansible_user }}"
 ssh_hardening_dropin: /etc/ssh/sshd_config.d/20-ansible-hardening.conf
-ssh_authorized_key_user: "{{ ansible_user }}"

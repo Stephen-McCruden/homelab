@@ -1,0 +1,22 @@
+# FILE PATH: roles/container_runtime/templates/config-v3.toml.j2
+version = 3
+root = "/var/lib/containerd"
+state = "/run/containerd"
+[grpc]
+  address = "/run/containerd/containerd.sock"
+[plugins.'io.containerd.cri.v1.images']
+  snapshotter = "overlayfs"
+  [plugins.'io.containerd.cri.v1.images'.pinned_images]
+    sandbox = "{{ containerd_sandbox_image }}"
+[plugins.'io.containerd.cri.v1.runtime']
+  enable_selinux = true
+  [plugins.'io.containerd.cri.v1.runtime'.containerd]
+    default_runtime_name = "runc"
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+      runtime_type = "io.containerd.runc.v2"
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+        SystemdCgroup = true
+  [plugins.'io.containerd.cri.v1.runtime'.cni]
+    bin_dirs = ["/opt/cni/bin", "/usr/libexec/cni"]
+    conf_dir = "/etc/cni/net.d"
+    max_conf_num = 1

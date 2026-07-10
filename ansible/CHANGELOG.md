@@ -1,7 +1,8 @@
-# FILE PATH: CHANGELOG.md
 # Changelog
 
-## [0.1.0] - 2026-07-10
-- Split system initialization into focused roles.
-- Added DNF5 cache recovery without disabling GPG validation.
-- Added source-restricted firewalling, SELinux enforcement, SSH hardening, verification, CI, linting, and documentation.
+## 1.0.0-rc2 - 2026-07-10
+
+- Corrected SSH host-key reconciliation comparison so unchanged keys report `ok`.
+- Added an idempotent preflight to disable Fedora/systemd OSC 3008 shell-context output before Ansible fact gathering.
+- Added persistent hardening and verification for the OSC 3008 compatibility setting.
+- Preserved the fully converged Fedora Kubernetes node baseline and zero-change remote second run.

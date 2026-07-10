@@ -1,88 +1,88 @@
 # FILE PATH: roles/prereqs/tasks/main.yml
 ---
-- name: Install base Kubernetes prerequisite packages
-  block:
-    - name: Install prerequisite packages
-      ansible.builtin.dnf5:
-        name: "{{ kubernetes_prereq_packages }}"
-        state: present
-        update_cache: false
-      register: prereq_install
-      retries: 2
-      delay: 10
-      until: prereq_install is succeeded
-  rescue:
-    - name: Clean package cache after package validation failure
-      ansible.builtin.command: dnf5 clean all
-      changed_when: true
-    - name: Refresh repository metadata after cleanup
-      ansible.builtin.command: dnf5 makecache --refresh
-      changed_when: true
-    - name: Retry prerequisite package installation
-      ansible.builtin.dnf5:
-        name: "{{ kubernetes_prereq_packages }}"
-        state: present
-        update_cache: false
+- name: Install Kubernetes prerequisite packages
+  ansible.builtin.include_role:
+    name: package_manager
+    tasks_from: install
+  vars:
+    package_manager_packages: "{{ kubernetes_prerequisite_packages }}"
 
 - name: Persist Kubernetes kernel modules
-  ansible.builtin.copy:
+  ansible.builtin.template:
+    src: kubernetes-modules.conf.j2
     dest: /etc/modules-load.d/kubernetes.conf
     owner: root
     group: root
     mode: "0644"
-    content: "{{ kubernetes_kernel_modules | join('\n') }}\n"
 
 - name: Read loaded kernel modules
-  ansible.builtin.command: lsmod
-  register: loaded_modules
+  ansible.builtin.command:
+    argv: [lsmod]
+  register: loaded_kernel_modules
   changed_when: false
+  check_mode: false
 
 - name: Load missing required kernel modules
-  ansible.builtin.command: "modprobe {{ item }}"
+  ansible.builtin.command:
+    argv: [modprobe, "{{ item }}"]
   loop: "{{ kubernetes_kernel_modules }}"
-  when: item not in (loaded_modules.stdout_lines | map('regex_replace', '^([^ ]+).*', '\\1') | list)
+  when: loaded_kernel_modules.stdout is not regex('(?m)^' ~ item ~ '\\s')
   changed_when: true
 
 - name: Install persistent Kubernetes sysctl configuration
-  ansible.builtin.copy:
+  ansible.builtin.template:
+    src: kubernetes-sysctl.conf.j2
     dest: /etc/sysctl.d/99-kubernetes.conf
     owner: root
     group: root
     mode: "0644"
-    content: |
-      net.bridge.bridge-nf-call-iptables = 1
-      net.bridge.bridge-nf-call-ip6tables = 1
-      net.ipv4.ip_forward = 1
-  register: kubernetes_sysctl_config
+  register: kubernetes_sysctl_configuration
 
 - name: Apply Kubernetes sysctl configuration when changed
-  ansible.builtin.command: sysctl --system
-  when: kubernetes_sysctl_config.changed
+  ansible.builtin.command:
+    argv: [sysctl, --system]
+  when: kubernetes_sysctl_configuration.changed
   changed_when: true
 
-- name: Disable zram generation
+- name: Disable zram generation for Kubernetes nodes
   ansible.builtin.copy:
+    content: |
+      # Managed by Ansible.
+      [zram0]
+      zram-size = 0
     dest: /etc/systemd/zram-generator.conf
     owner: root
     group: root
     mode: "0644"
-    content: "# Managed by Ansible: zram disabled for Kubernetes
-"
   notify: Reload systemd
+
+- name: Stop generated zram swap unit when present
+  ansible.builtin.systemd_service:
+    name: systemd-zram-setup@zram0.service
+    state: stopped
+  failed_when: false
+
+- name: Reset failed zram systemd state
+  ansible.builtin.command:
+    argv: [systemctl, reset-failed, systemd-zram-setup@zram0.service]
+  changed_when: false
+  failed_when: false
 
 - name: Disable persistent swap entries
   ansible.builtin.replace:
     path: /etc/fstab
     regexp: '^(?!#)(\S+\s+\S+\s+swap\s+\S+.*)$'
     replace: '# Disabled by Ansible for Kubernetes: \1'
-    backup: true
 
 - name: Read active swap
-  ansible.builtin.command: swapon --noheadings --show
+  ansible.builtin.command:
+    argv: [swapon, --noheadings, --show]
   register: active_swap
   changed_when: false
+  check_mode: false
 
 - name: Disable active swap
-  ansible.builtin.command: swapoff --all
+  ansible.builtin.command:
+    argv: [swapoff, --all]
   when: active_swap.stdout | trim | length > 0
   changed_when: true

@@ -1,0 +1,4 @@
+# FILE PATH: roles/prereqs/templates/kubernetes-sysctl.conf.j2
+{% for key, value in kubernetes_sysctl_values.items() %}
+{{ key }} = {{ value }}
+{% endfor %}

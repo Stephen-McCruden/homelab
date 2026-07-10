@@ -1,30 +1,16 @@
-# FILE PATH: README.md
-# Homelab Ansible
+# Homelab Ansible v2.1
 
-Production-style Fedora Kubernetes node automation for Terraform-created Proxmox VMs.
-
-## Normal operation
+Run the complete Fedora Kubernetes node baseline with:
 
 ```bash
 ansible-playbook playbooks/system-init.yml
 ```
 
-This single playbook reconciles ephemeral SSH host keys, configures package management, prerequisites, containerd, Kubernetes tools, firewalling, hardening, and verifies the final state.
+Run as the normal local user, not with `sudo`. The playbook uses privilege escalation only on managed nodes.
 
-## Repository layout
+## v1.0.0-rc2 compatibility cleanup
 
-- `playbooks/`: operational entry points
-- `roles/`: reusable configuration units
-- `inventory/`: environment inventory
-- `procedures/`: operator runbooks
-- `docs/ADR/`: architecture decisions
-- `.github/workflows/`: automated static validation
+This release candidate includes two final transport-level cleanup changes:
 
-## Controller setup
-Normal operation requires only Ansible Core on the controller. The operational playbook uses built-in modules and does not require Galaxy collections. Development-only lint and CI tools are installed with `make install`.
-
-## Lifecycle boundary
-`system-init.yml` prepares nodes only. `kube-bootstrap.yml`, upgrades, and destructive reset automation remain gated until their own procedures are designed and tested.
-
-## Automated testing
-GitHub Actions runs YAML linting, Ansible linting, syntax validation, and a privileged Fedora Molecule scenario. Molecule's built-in idempotence phase converges the tested roles a second time and fails when tasks still report changes.
+- SSH host-key reconciliation compares key algorithms and key material, so an unchanged Terraform node reports `ok` rather than `changed`.
+- Fedora systemd OSC 3008 shell-context integration is disabled and masked before fact gathering because it appends terminal control sequences after Ansible module JSON when privilege escalation is used.

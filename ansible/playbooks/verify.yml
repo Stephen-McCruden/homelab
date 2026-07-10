@@ -1,8 +1,0 @@
-# FILE PATH: playbooks/verify.yml
----
-- name: Verify Kubernetes node baseline
-  hosts: kubernetes_cluster
-  become: true
-  gather_facts: true
-  roles:
-    - verification

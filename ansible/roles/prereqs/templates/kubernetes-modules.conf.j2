@@ -1,0 +1,4 @@
+# FILE PATH: roles/prereqs/templates/kubernetes-modules.conf.j2
+{% for module in kubernetes_kernel_modules %}
+{{ module }}
+{% endfor %}

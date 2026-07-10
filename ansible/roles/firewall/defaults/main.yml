@@ -1,7 +1,16 @@
 # FILE PATH: roles/firewall/defaults/main.yml
 ---
 kubernetes_firewall_zone: kubernetes
-firewall_allow_nodeports: false
-control_plane_ports: ["6443/tcp", "2379-2380/tcp", "10250/tcp", "10257/tcp", "10259/tcp"]
-worker_ports: ["10250/tcp", "10256/tcp"]
-nodeport_ports: ["30000-32767/tcp", "30000-32767/udp"]
+firewall_allow_nodeport_range: false
+firewall_remove_ssh_from_public_zone: false
+control_plane_ports:
+  - 10250/tcp
+  - 10256/tcp
+  - 6443/tcp
+  - 2379-2380/tcp
+  - 10257/tcp
+  - 10259/tcp
+worker_ports:
+  - 10250/tcp
+  - 10256/tcp
+nodeport_range: 30000-32767/tcp

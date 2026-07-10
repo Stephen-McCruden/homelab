@@ -1,9 +1,0 @@
-# FILE PATH: playbooks/upgrade.yml
----
-- name: Kubernetes upgrade safety gate
-  hosts: kubernetes_cluster
-  gather_facts: false
-  tasks:
-    - name: Require a separately reviewed upgrade implementation
-      ansible.builtin.fail:
-        msg: Upgrade automation must be implemented for the exact current and target Kubernetes minor versions; skipping minor versions is unsupported.

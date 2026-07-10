@@ -1,17 +1,54 @@
 #!/usr/bin/env bash
 # FILE PATH: scripts/reconcile-known-host.sh
+# PURPOSE: Reconcile Terraform-recreated host keys without reporting false changes.
 set -euo pipefail
-host="${1:?host required}"; known_hosts="${2:?known_hosts path required}"
-mkdir -p "$(dirname "$known_hosts")"; touch "$known_hosts"; chmod 600 "$known_hosts"
-scan="$(mktemp)"; trap 'rm -f "$scan"' EXIT
-for i in {1..12}; do ssh-keyscan -T 5 -H "$host" >"$scan" 2>/dev/null && [[ -s "$scan" ]] && break; sleep 5; done
-[[ -s "$scan" ]] || { echo "Unable to scan SSH host key for $host" >&2; exit 1; }
-old="$(ssh-keygen -F "$host" -f "$known_hosts" 2>/dev/null || true)"
-if [[ -n "$old" ]]; then
-  current_plain="$(ssh-keyscan -T 5 "$host" 2>/dev/null | awk '{print $2" "$3}' | sort -u)"
-  old_plain="$(printf '%s
-' "$old" | awk '!/^#/ {print $2" "$3}' | sort -u)"
-  [[ "$current_plain" == "$old_plain" ]] && { echo "UNCHANGED: $host"; exit 0; }
-  ssh-keygen -R "$host" -f "$known_hosts" >/dev/null
+
+if [[ $# -ne 2 ]]; then
+  echo "Usage: $0 <host> <known_hosts_file>" >&2
+  exit 2
 fi
-cat "$scan" >> "$known_hosts"; echo "UPDATED: $host"
+
+host="$1"
+known_hosts="$2"
+known_hosts_dir="$(dirname "$known_hosts")"
+
+mkdir -p "$known_hosts_dir"
+chmod 0700 "$known_hosts_dir"
+touch "$known_hosts"
+chmod 0600 "$known_hosts"
+
+scan_file="$(mktemp)"
+scan_keys="$(mktemp)"
+existing_keys="$(mktemp)"
+cleanup() {
+  rm -f "$scan_file" "$scan_keys" "$existing_keys"
+}
+trap cleanup EXIT
+
+# Obtain all currently offered host keys. Sorting removes ordering differences
+# between ssh-keyscan runs.
+ssh-keyscan -T 10 "$host" 2>/dev/null | sort -u > "$scan_file"
+
+if [[ ! -s "$scan_file" ]]; then
+  echo "ERROR: no SSH host key returned for $host" >&2
+  exit 1
+fi
+
+# Compare only key algorithm and key material. The hostname field may be plain,
+# bracketed, comma-separated, or hashed without representing a key change.
+awk 'NF >= 3 {print $2, $3}' "$scan_file" | sort -u > "$scan_keys"
+
+ssh-keygen -F "$host" -f "$known_hosts" 2>/dev/null \
+  | awk '!/^#/ && NF >= 3 {print $2, $3}' \
+  | sort -u > "$existing_keys" || true
+
+if [[ -s "$existing_keys" ]] && cmp -s "$existing_keys" "$scan_keys"; then
+  echo "UNCHANGED: $host"
+  exit 0
+fi
+
+# Remove every old entry for this address before writing the freshly scanned set.
+ssh-keygen -R "$host" -f "$known_hosts" >/dev/null 2>&1 || true
+cat "$scan_file" >> "$known_hosts"
+
+echo "UPDATED: $host"

@@ -1,53 +1,144 @@
 # FILE PATH: playbooks/system-init.yml
+# PURPOSE: Reconcile ephemeral SSH keys, prepare Ansible transport, configure,
+#          harden, and verify Fedora Kubernetes nodes.
 ---
 - name: Reconcile controller SSH host keys for ephemeral Terraform nodes
   hosts: localhost
+  connection: local
   gather_facts: false
+  become: false
   vars:
-    known_hosts_file: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+    controller_home: "{{ lookup('env', 'HOME') }}"
+    controller_ssh_directory: "{{ controller_home }}/.ssh"
+    ssh_known_hosts_file: "{{ controller_ssh_directory }}/known_hosts"
+    reconcile_script: "{{ playbook_dir }}/../scripts/reconcile-known-host.sh"
   tasks:
-    - name: Reconcile known_hosts entries with currently provisioned nodes
+    - name: Verify SSH reconciliation script exists
+      ansible.builtin.stat:
+        path: "{{ reconcile_script }}"
+      register: reconcile_script_status
+
+    - name: Assert SSH reconciliation script is available
+      ansible.builtin.assert:
+        that:
+          - reconcile_script_status.stat.exists
+          - reconcile_script_status.stat.isreg
+          - reconcile_script_status.stat.executable
+        fail_msg: "SSH reconciliation script is missing or not executable: {{ reconcile_script }}"
+
+    - name: Ensure controller SSH directory exists
+      ansible.builtin.file:
+        path: "{{ controller_ssh_directory }}"
+        state: directory
+        mode: "0700"
+
+    - name: Ensure controller known_hosts file exists
+      ansible.builtin.file:
+        path: "{{ ssh_known_hosts_file }}"
+        state: touch
+        mode: "0600"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Reconcile known_hosts entries with provisioned nodes
       ansible.builtin.command:
         argv:
-          - "{{ playbook_dir }}/../scripts/reconcile-known-host.sh"
+          - "{{ reconcile_script }}"
           - "{{ hostvars[item].ansible_host | default(item) }}"
-          - "{{ known_hosts_file }}"
-      loop: "{{ groups['kubernetes_cluster'] }}"
+          - "{{ ssh_known_hosts_file }}"
+      loop: "{{ groups['kubernetes_cluster'] | default([]) }}"
       loop_control:
         label: "{{ item }} -> {{ hostvars[item].ansible_host | default(item) }}"
-      register: host_key_result
-      changed_when: "'UPDATED:' in host_key_result.stdout"
-      when: reconcile_ephemeral_ssh_host_keys | bool
+      register: ssh_host_key_reconciliation
+      changed_when: "'UPDATED:' in ssh_host_key_reconciliation.stdout"
+      failed_when: ssh_host_key_reconciliation.rc != 0
+
+- name: Prepare clean Ansible transport on Fedora nodes
+  hosts: kubernetes_cluster
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Disable systemd OSC 3008 shell context integration
+      ansible.builtin.raw: |
+        changed=0
+        profile_link=/etc/profile.d/80-systemd-osc-context.sh
+        tmpfiles_mask=/etc/tmpfiles.d/20-systemd-osc-context.conf
+
+        if [ -e "$profile_link" ] || [ -L "$profile_link" ]; then
+          rm -f "$profile_link"
+          changed=1
+        fi
+
+        mkdir -p /etc/tmpfiles.d
+        if [ "$(readlink "$tmpfiles_mask" 2>/dev/null || true)" != "/dev/null" ]; then
+          rm -f "$tmpfiles_mask"
+          ln -s /dev/null "$tmpfiles_mask"
+          changed=1
+        fi
+
+        if [ "$changed" -eq 1 ]; then
+          echo "OSC_CONTEXT_CHANGED"
+        else
+          echo "OSC_CONTEXT_UNCHANGED"
+        fi
+      register: osc_context_preflight
+      changed_when: "'OSC_CONTEXT_CHANGED' in osc_context_preflight.stdout"
+      when: disable_systemd_osc_context_for_ansible | default(true) | bool
+
+    - name: Reset SSH connection after disabling OSC integration
+      ansible.builtin.meta: reset_connection
 
 - name: Prepare and harden Fedora Kubernetes nodes
   hosts: kubernetes_cluster
-  become: true
   gather_facts: true
-  any_errors_fatal: true
-  serial: "100%"
+  become: true
   pre_tasks:
-    - name: Validate supported environment
+    - name: Validate Ansible controller version
       ansible.builtin.assert:
         that:
-          - ansible_distribution == 'Fedora'
           - ansible_version.full is version('2.16', '>=')
-          - groups['kubernetes_control_plane'] | length >= 1
+        fail_msg: Ansible-core 2.16 or newer is required.
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Validate supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Fedora'
+        fail_msg: "This baseline supports Fedora only. Detected {{ ansible_facts.distribution }}."
+
+    - name: Validate required inventory groups
+      ansible.builtin.assert:
+        that:
+          - groups['control_plane'] | default([]) | length > 0
+          - groups['workers'] | default([]) | length > 0
+          - groups['kubernetes_cluster'] | default([]) | length > 0
+        fail_msg: Inventory must define control_plane, workers, and kubernetes_cluster groups.
+      run_once: true
+
+    - name: Validate required cluster variables
+      ansible.builtin.assert:
+        that:
           - cluster_network_cidr is defined
-          - management_network_cidrs | length >= 1
-        fail_msg: Unsupported host, Ansible version, inventory, or required variables.
-      tags: [always]
+          - management_network_cidrs is defined
+          - kubernetes_minor_version is defined
+        fail_msg: One or more required cluster variables are missing.
+
+    - name: Validate remote passwordless sudo
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - --non-interactive
+          - "true"
+      become: false
+      changed_when: false
+
   roles:
-    - role: package_manager
-      tags: [packages]
-    - role: prereqs
-      tags: [prereqs]
-    - role: container_runtime
-      tags: [containerd]
-    - role: kubernetes_node
-      tags: [kubernetes]
-    - role: firewall
-      tags: [firewall]
-    - role: hardening
-      tags: [hardening]
-    - role: verification
-      tags: [verify, always]
+    - package_manager
+    - prereqs
+    - container_runtime
+    - kubernetes_node
+    - firewall
+    - hardening
+    - verification

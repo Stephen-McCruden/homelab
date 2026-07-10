@@ -1,0 +1,8 @@
+# FILE PATH: roles/kubernetes_node/templates/kubernetes.repo.j2
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/repodata/repomd.xml.key

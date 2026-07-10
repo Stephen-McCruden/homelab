@@ -1,60 +1,60 @@
 # FILE PATH: roles/container_runtime/tasks/main.yml
 ---
-- name: Install containerd
-  ansible.builtin.dnf5:
-    name: "{{ containerd_package }}"
-    state: present
+- name: Install containerd through resilient package management
+  ansible.builtin.include_role:
+    name: package_manager
+    tasks_from: install
+  vars:
+    package_manager_packages: [containerd]
 
 - name: Create containerd configuration directory
   ansible.builtin.file:
-    path: "{{ containerd_config_path | dirname }}"
+    path: "{{ containerd_config_directory }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
 
-- name: Check containerd configuration
-  ansible.builtin.stat:
-    path: "{{ containerd_config_path }}"
-  register: containerd_config
-
-- name: Generate containerd default configuration
-  ansible.builtin.command: containerd config default
-  register: containerd_default
+- name: Read installed containerd version
+  ansible.builtin.command:
+    argv: [containerd, --version]
+  register: containerd_installed_version
   changed_when: false
-  when: not containerd_config.stat.exists
+  check_mode: false
 
-- name: Write initial containerd configuration
-  ansible.builtin.copy:
+- name: Verify containerd 2.x is installed
+  ansible.builtin.assert:
+    that:
+      - containerd_installed_version.stdout is search('containerd.*v?2\\.')
+    fail_msg: "This role manages containerd 2.x. Detected: {{ containerd_installed_version.stdout }}"
+
+- name: Install managed containerd 2.x configuration
+  ansible.builtin.template:
+    src: config-v3.toml.j2
     dest: "{{ containerd_config_path }}"
-    content: "{{ containerd_default.stdout }}
-"
     owner: root
     group: root
     mode: "0644"
-  when: not containerd_config.stat.exists
   notify: Restart containerd
 
-- name: Configure containerd systemd cgroups
-  ansible.builtin.replace:
-    path: "{{ containerd_config_path }}"
-    regexp: '^(\s*SystemdCgroup\s*=\s*)false$'
-    replace: '\1true'
-  notify: Restart containerd
-
-- name: Ensure containerd CRI plugin is enabled
-  ansible.builtin.replace:
-    path: "{{ containerd_config_path }}"
-    regexp: '^disabled_plugins\s*=\s*\[.*"cri".*\]$'
-    replace: 'disabled_plugins = []'
-  notify: Restart containerd
-
-- name: Validate containerd configuration
-  ansible.builtin.command: containerd config dump
-  changed_when: false
+- name: Flush containerd handler before validation
+  ansible.builtin.meta: flush_handlers
 
 - name: Enable and start containerd
   ansible.builtin.systemd_service:
     name: containerd
     enabled: true
     state: started
+    daemon_reload: true
+
+- name: Read effective containerd configuration
+  ansible.builtin.command:
+    argv: [containerd, config, dump]
+  register: containerd_effective_configuration
+  changed_when: false
+  check_mode: false
+
+- name: Verify effective containerd systemd cgroup configuration
+  ansible.builtin.assert:
+    that:
+      - containerd_effective_configuration.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')

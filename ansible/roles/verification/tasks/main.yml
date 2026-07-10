@@ -3,45 +3,118 @@
 - name: Flush pending handlers before validation
   ansible.builtin.meta: flush_handlers
 
-- name: Verify required services
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-  register: service_status
-  failed_when: service_status.status.ActiveState != 'active'
-  changed_when: false
-  loop: [containerd, firewalld]
+- name: Collect service facts
+  ansible.builtin.service_facts:
+
+- name: Verify required services are present and active
+  ansible.builtin.assert:
+    that:
+      - item in ansible_facts.services
+      - ansible_facts.services[item].state == 'running'
+  loop:
+    - containerd.service
+    - firewalld.service
 
 - name: Check active swap
-  ansible.builtin.command: swapon --noheadings --show
-  register: verify_swap
+  ansible.builtin.command:
+    argv: [swapon, --noheadings, --show]
+  register: verification_swap
   changed_when: false
-  failed_when: verify_swap.stdout | trim | length > 0
+  failed_when: verification_swap.stdout | trim | length > 0
+  check_mode: false
 
-- name: Check required sysctls
-  ansible.builtin.command: "sysctl -n {{ item.key }}"
-  register: verify_sysctl
+- name: Check required sysctl values
+  ansible.builtin.command:
+    argv: [sysctl, -n, "{{ item.key }}"]
+  register: verification_sysctl
   changed_when: false
-  failed_when: verify_sysctl.stdout | trim != item.value
-  loop:
-    - { key: net.bridge.bridge-nf-call-iptables, value: '1' }
-    - { key: net.bridge.bridge-nf-call-ip6tables, value: '1' }
-    - { key: net.ipv4.ip_forward, value: '1' }
+  failed_when: verification_sysctl.rc != 0 or verification_sysctl.stdout | trim != item.value | string
+  loop: "{{ kubernetes_sysctl_values | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+  check_mode: false
 
-- name: Verify SELinux enforcing
-  ansible.builtin.command: getenforce
-  register: verify_selinux
+- name: Read active SELinux mode
+  ansible.builtin.command:
+    argv: [getenforce]
+  register: verification_selinux
   changed_when: false
-  failed_when: verify_selinux.stdout | trim != 'Enforcing'
+  failed_when: verification_selinux.rc != 0 or verification_selinux.stdout | trim != 'Enforcing'
+  check_mode: false
 
-- name: Verify effective SSH settings
-  ansible.builtin.command: sshd -T
-  register: verify_sshd
+- name: Read effective SSH configuration
+  ansible.builtin.command:
+    argv: [sshd, -T]
+  register: verification_sshd
   changed_when: false
-  failed_when: >-
-    'permitrootlogin no' not in verify_sshd.stdout or
-    'passwordauthentication no' not in verify_sshd.stdout
+  failed_when: verification_sshd.rc != 0
+  check_mode: false
 
-- name: Verify Kubernetes tools
-  ansible.builtin.command: "{{ item }} --version"
-  loop: [kubeadm, kubelet, kubectl]
+- name: Verify effective SSH hardening settings
+  ansible.builtin.assert:
+    that:
+      - "'permitrootlogin no' in verification_sshd.stdout"
+      - "'passwordauthentication no' in verification_sshd.stdout"
+      - "'kbdinteractiveauthentication no' in verification_sshd.stdout"
+      - "'pubkeyauthentication yes' in verification_sshd.stdout"
+
+- name: Verify kubeadm is installed and executable
+  ansible.builtin.command:
+    argv: [kubeadm, version, -o, short]
+  register: verification_kubeadm
   changed_when: false
+
+- name: Verify kubelet is installed and executable
+  ansible.builtin.command:
+    argv: [kubelet, --version]
+  register: verification_kubelet
+  changed_when: false
+
+- name: Verify kubectl is installed and executable
+  ansible.builtin.command:
+    argv: [kubectl, version, --client=true, --output=yaml]
+  register: verification_kubectl
+  changed_when: false
+
+- name: Read effective containerd configuration
+  ansible.builtin.command:
+    argv: [containerd, config, dump]
+  register: verification_containerd_effective_config
+  changed_when: false
+  check_mode: false
+
+- name: Verify containerd uses systemd cgroups
+  ansible.builtin.assert:
+    that:
+      - verification_containerd_effective_config.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')
+    fail_msg: containerd effective configuration does not use systemd cgroups.
+
+- name: Check systemd OSC 3008 profile integration
+  ansible.builtin.stat:
+    path: /etc/profile.d/80-systemd-osc-context.sh
+    follow: false
+  register: verification_osc_profile
+  when: disable_systemd_osc_context_for_ansible | default(true) | bool
+
+- name: Check systemd OSC 3008 tmpfiles mask
+  ansible.builtin.stat:
+    path: /etc/tmpfiles.d/20-systemd-osc-context.conf
+    follow: false
+  register: verification_osc_mask
+  when: disable_systemd_osc_context_for_ansible | default(true) | bool
+
+- name: Verify systemd OSC 3008 integration is disabled for Ansible compatibility
+  ansible.builtin.assert:
+    that:
+      - not verification_osc_profile.stat.exists
+      - verification_osc_mask.stat.islnk | default(false)
+      - verification_osc_mask.stat.lnk_source | default('') == '/dev/null'
+    fail_msg: systemd OSC 3008 shell context integration is not fully disabled.
+  when: disable_systemd_osc_context_for_ansible | default(true) | bool
+
+- name: Report verified Kubernetes component versions
+  ansible.builtin.debug:
+    msg:
+      - "kubeadm: {{ verification_kubeadm.stdout | trim }}"
+      - "kubelet: {{ verification_kubelet.stdout | trim }}"
+      - kubectl client verification completed successfully

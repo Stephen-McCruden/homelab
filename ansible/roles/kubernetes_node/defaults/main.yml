@@ -1,4 +1,6 @@
 # FILE PATH: roles/kubernetes_node/defaults/main.yml
 ---
-kubernetes_repo_path: /etc/yum.repos.d/kubernetes.repo
-kubernetes_node_packages: [kubelet, kubeadm, kubectl]
+kubernetes_packages:
+  - kubelet
+  - kubeadm
+  - kubectl

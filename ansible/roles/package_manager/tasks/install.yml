@@ -1,0 +1,54 @@
+# FILE PATH: roles/package_manager/tasks/install.yml
+---
+- name: Validate requested package list
+  ansible.builtin.assert:
+    that:
+      - package_manager_packages is defined
+      - package_manager_packages | length > 0
+
+- name: Install requested packages
+  block:
+    - name: Install requested packages with DNF5
+      ansible.builtin.dnf5:
+        name: "{{ package_manager_packages }}"
+        state: present
+        update_cache: false
+        disable_gpg_check: false
+      register: package_install_result
+      retries: 2
+      delay: 10
+      until: package_install_result is succeeded
+  rescue:
+    - name: Clean DNF5 cache
+      ansible.builtin.command:
+        argv: [dnf5, clean, all]
+      changed_when: true
+
+    - name: Remove corrupted DNF5 cache directory
+      ansible.builtin.file:
+        path: /var/cache/libdnf5
+        state: absent
+
+    - name: Recreate DNF5 cache directory
+      ansible.builtin.file:
+        path: /var/cache/libdnf5
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Rebuild DNF5 metadata
+      ansible.builtin.command:
+        argv: [dnf5, makecache, --refresh]
+      changed_when: true
+
+    - name: Retry requested package installation
+      ansible.builtin.dnf5:
+        name: "{{ package_manager_packages }}"
+        state: present
+        update_cache: false
+        disable_gpg_check: false
+      register: package_install_retry_result
+      retries: 3
+      delay: 15
+      until: package_install_retry_result is succeeded
