@@ -1,12 +1,48 @@
+# FILE PATH: roles/hardening/tasks/verify.yml
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
 ---
-- name: Check host runtime SELinux configuration parameters
-  command: getenforce
-  register: selinux_status
+- name: Read SELinux enforcement mode
+  ansible.builtin.command: getenforce
+  register: verify_selinux_mode
   changed_when: false
+  check_mode: false
 
-- name: VERIFY - Assert that system defense profile maps perfectly to specifications
-  assert:
+- name: Read effective sshd configuration
+  ansible.builtin.command: sshd -T
+  register: verify_sshd_effective
+  changed_when: false
+  check_mode: false
+
+- name: Read permanent Kubernetes firewall zone
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ firewalld_zone }} --list-all"
+  register: verify_firewall_zone
+  changed_when: false
+  check_mode: false
+
+- name: Read public-zone services
+  ansible.builtin.command: firewall-cmd --permanent --zone=public --list-services
+  register: verify_public_services
+  changed_when: false
+  check_mode: false
+
+- name: Read service facts for hardening verification
+  ansible.builtin.service_facts:
+
+- name: Assert host-hardening state
+  ansible.builtin.assert:
     that:
-      - "'Permissive' in selinux_status.stdout"
-    fail_msg: "SECURITY FAILURE: SELinux remains locked in enforcing stance."
-    success_msg: "SECURITY PASS: SELinux set to permissive, networking matrix successfully active."
+      - verify_selinux_mode.stdout | trim == 'Enforcing'
+      - "'permitrootlogin no' in verify_sshd_effective.stdout"
+      - "'passwordauthentication no' in verify_sshd_effective.stdout"
+      - "'kbdinteractiveauthentication no' in verify_sshd_effective.stdout"
+      - "'pubkeyauthentication yes' in verify_sshd_effective.stdout"
+      - cluster_network_cidr in verify_firewall_zone.stdout
+      - (management_network_cidrs + (tailscale_management_cidrs | default([]))) | difference(verify_firewall_zone.stdout.split()) | length == 0
+      - "'ssh' in verify_firewall_zone.stdout"
+      - "'ssh' not in verify_public_services.stdout.split()"
+      - ansible_facts.services['firewalld.service'].state == 'running'
+      - ansible_facts.services['firewalld.service'].status == 'enabled'
+      - ansible_facts.services['sshd.service'].state == 'running'
+      - ansible_facts.services['sshd.service'].status == 'enabled'
+    fail_msg: "Host-hardening verification failed on {{ inventory_hostname }}."
+    success_msg: "Host hardening verified on {{ inventory_hostname }}."

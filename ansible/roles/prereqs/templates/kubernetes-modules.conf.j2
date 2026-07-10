@@ -1,0 +1,5 @@
+# FILE PATH: roles/prereqs/templates/kubernetes-modules.conf.j2
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
+{% for module in kubernetes_kernel_modules %}
+{{ module }}
+{% endfor %}

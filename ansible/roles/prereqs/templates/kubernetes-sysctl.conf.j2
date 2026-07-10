@@ -1,0 +1,5 @@
+# FILE PATH: roles/prereqs/templates/kubernetes-sysctl.conf.j2
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
+{% for setting, value in kubernetes_sysctl_settings | dictsort %}
+{{ setting }} = {{ value }}
+{% endfor %}

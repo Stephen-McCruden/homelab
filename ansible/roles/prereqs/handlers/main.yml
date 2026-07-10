@@ -1,0 +1,12 @@
+# FILE PATH: roles/prereqs/handlers/main.yml
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: "{{ containerd_service_name }}"
+    state: restarted
+    enabled: true

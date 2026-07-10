@@ -1,70 +1,146 @@
+# FILE PATH: roles/prereqs/tasks/main.yml
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
 ---
-# 1. Linux Kernal Tuning
-- name: Ensure Kubernetes kernal modules load automatically on boot
-  copy:
-    dest: /etc/modules-load.d/k8s.conf
-    content: |
-      overlay
-      br_netfilter
-    mode: '0644'
-
-- name: Load kernel modules immediately
-  modprobe:
-    name: "{{ item }}"
-  loop:
-    - overlay
-    - br_netfilter
-
-- name: Configure sysctl network parameters for L2 briding
-  copy:
-      dest: /etc/sysctl.d/k8s.conf
-      content: |
-        net.bridge.bridge-nf-call-iptables  = 1
-        net.bridge.bridge-nf-call-ip6tables = 1
-        net-ipv4.ip_forward                 = 1
-      mode: '0644'
-
-- name: Apply sysctl network updates immediately
-  command: sysctl --system
-  changed_when: false
-
-# 2. Swap Management
-- name: Mask Fedora zrom-generator to keep swap permanently disabled
-  systemd_service:
-    name: swap-create@zram0
-    state: stopped
-    enabled: false
-    masked: true
-  failed_when: false
-
-# 3. Container Runtime Environment
-- name: Install Containerd engine via Fedora repositories
-  dnf:
-    name: containerd
+- name: Install base Kubernetes prerequisite packages
+  ansible.builtin.dnf:
+    name: "{{ kubernetes_prereq_packages }}"
     state: present
+    update_cache: true
 
-- name: Generate clean, factory-default containerd blueprint configuration
-  file:
-    path: /etc/containerd
-    state: directory
-    mode: '0755'
+- name: Configure Kubernetes RPM repository
+  ansible.builtin.template:
+    src: kubernetes.repo.j2
+    dest: "{{ kubernetes_repo_path }}"
+    owner: root
+    group: root
+    mode: "0644"
 
-- name: Populate containerd  settings with SystemdCgroup engine activated
-  shell: containerd config default > /etc/containerd/config.toml
-  changed_when: true
+- name: Install Kubernetes node packages from the selected minor repository
+  ansible.builtin.dnf:
+    name: "{{ kubernetes_node_packages }}"
+    state: present
+    disable_excludes: kubernetes
+    update_cache: true
 
-- name: Tune config to handle native systemd cgroups for Kubernetes
-  replace:
-    path: /etc/containerd/config.toml
-    regexp: 'SystemdCgroup = false'
-    replace: 'SystemdCgroup = true'
-
-- name: Wake up and activate containerd engine service
-  systemd_service:
-    name: containerd
-    state: restarted
+- name: Enable kubelet for future kubeadm bootstrap
+  ansible.builtin.systemd_service:
+    name: kubelet
     enabled: true
 
-# 4. Built-in Verification Loop Execution
-- name: Execute inline configuration unit validation testing
-  import_tasks: verify.yml
+- name: Persist required kernel modules
+  ansible.builtin.template:
+    src: kubernetes-modules.conf.j2
+    dest: /etc/modules-load.d/kubernetes.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read currently loaded kernel modules
+  ansible.builtin.command: lsmod
+  register: prereqs_lsmod_before
+  changed_when: false
+
+- name: Load missing Kubernetes kernel modules
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop: "{{ kubernetes_kernel_modules }}"
+  when: item not in (prereqs_lsmod_before.stdout_lines | map('regex_replace', '^([^ ]+).*', '\\1') | list)
+  changed_when: true
+
+- name: Install persistent Kubernetes sysctl configuration
+  ansible.builtin.template:
+    src: kubernetes-sysctl.conf.j2
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: kubernetes_sysctl_file
+
+- name: Apply Kubernetes sysctl configuration when changed
+  ansible.builtin.command: sysctl --system
+  when: kubernetes_sysctl_file.changed
+  changed_when: true
+
+- name: Disable Fedora zram generation
+  ansible.builtin.copy:
+    dest: /etc/systemd/zram-generator.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: ""
+  notify: Reload systemd
+
+- name: Comment active swap entries in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(?!#)(\S+\s+\S+\s+swap\s+\S+.*)$'
+    replace: '# Disabled by Ansible for Kubernetes: \1'
+    backup: true
+
+- name: Read active swap devices
+  ansible.builtin.command: swapon --noheadings --show
+  register: prereqs_active_swap_before
+  changed_when: false
+
+- name: Disable active swap
+  ansible.builtin.command: swapoff --all
+  when: prereqs_active_swap_before.stdout | trim | length > 0
+  changed_when: true
+
+- name: Ensure containerd configuration directory exists
+  ansible.builtin.file:
+    path: "{{ containerd_config_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check for existing containerd configuration
+  ansible.builtin.stat:
+    path: "{{ containerd_config_path }}"
+  register: containerd_config_stat
+
+- name: Generate default containerd configuration when absent
+  ansible.builtin.command: containerd config default
+  register: containerd_default_config
+  when: not containerd_config_stat.stat.exists
+  changed_when: false
+
+- name: Install initial containerd configuration when absent
+  ansible.builtin.copy:
+    dest: "{{ containerd_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ containerd_default_config.stdout }}\n"
+  when: not containerd_config_stat.stat.exists
+  notify: Restart containerd
+
+- name: Enable systemd cgroups in containerd
+  ansible.builtin.replace:
+    path: "{{ containerd_config_path }}"
+    regexp: '^(\s*SystemdCgroup\s*=\s*)false\s*$'
+    replace: '\1true'
+  notify: Restart containerd
+
+- name: Ensure CRI is not explicitly disabled in containerd
+  ansible.builtin.replace:
+    path: "{{ containerd_config_path }}"
+    regexp: '^disabled_plugins\s*=\s*\[(?:\s*"cri"\s*,?\s*)+\]\s*$'
+    replace: 'disabled_plugins = []'
+  notify: Restart containerd
+
+- name: Validate containerd configuration
+  ansible.builtin.command: containerd config dump
+  changed_when: false
+
+- name: Ensure containerd is enabled and running
+  ansible.builtin.systemd_service:
+    name: "{{ containerd_service_name }}"
+    state: started
+    enabled: true
+
+- name: Flush prerequisite handlers before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify prerequisite state
+  ansible.builtin.import_tasks: verify.yml

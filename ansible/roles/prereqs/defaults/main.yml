@@ -1,0 +1,38 @@
+# FILE PATH: roles/prereqs/defaults/main.yml
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
+---
+kubernetes_prereq_packages:
+  - containerd
+  - conntrack-tools
+  - containernetworking-plugins
+  - cri-tools
+  - curl
+  - ebtables
+  - ethtool
+  - iproute-tc
+  - iptables
+  - socat
+
+kubernetes_node_packages:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+kubernetes_kernel_modules:
+  - overlay
+  - br_netfilter
+
+kubernetes_sysctl_settings:
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.bridge.bridge-nf-call-ip6tables: "1"
+  net.ipv4.ip_forward: "1"
+
+containerd_config_path: /etc/containerd/config.toml
+containerd_service_name: containerd
+kubernetes_repo_path: /etc/yum.repos.d/kubernetes.repo
+kubernetes_minor_version: "1.36"
+
+# Pinning prevents an ordinary system update from unexpectedly crossing a
+# Kubernetes minor-version boundary. Patch releases within this repository
+# remain available when you intentionally update them.
+kubernetes_exclude_packages: "kubelet kubeadm kubectl"

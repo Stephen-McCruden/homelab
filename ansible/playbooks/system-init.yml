@@ -1,0 +1,93 @@
+# FILE PATH: playbooks/system-init.yml
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
+---
+- name: Reconcile controller SSH host keys for ephemeral Terraform nodes
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    known_hosts_file: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+  tasks:
+    - name: Validate required controller commands
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - ssh-keyscan -h
+        - ssh-keygen -h
+      register: controller_command_checks
+      changed_when: false
+      failed_when: false
+
+    - name: Assert required OpenSSH client commands are installed
+      ansible.builtin.assert:
+        that:
+          - controller_command_checks.results[0].rc in [0, 1]
+          - controller_command_checks.results[1].rc in [0, 1]
+        fail_msg: "The Ansible controller requires ssh-keyscan and ssh-keygen."
+
+    - name: Reconcile known_hosts entries with currently provisioned nodes
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/../scripts/reconcile-known-host.sh"
+          - "{{ hostvars[item].ansible_host | default(item) }}"
+          - "{{ known_hosts_file }}"
+      loop: "{{ groups.get('all', []) }}"
+      loop_control:
+        label: "{{ item }} -> {{ hostvars[item].ansible_host | default(item) }}"
+      register: ssh_host_key_reconciliation
+      changed_when: "'UPDATED:' in ssh_host_key_reconciliation.stdout"
+      when: reconcile_ephemeral_ssh_host_keys | default(true) | bool
+
+- name: Prepare and harden Fedora Kubernetes nodes
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: "{{ rollout_batch_size | default('100%') }}"
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Validate Ansible controller version
+      ansible.builtin.assert:
+        that:
+          - ansible_version.full is version('2.16', '>=')
+        fail_msg: "Ansible Core 2.16 or newer is required."
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Validate supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'RedHat'
+          - ansible_facts.distribution == 'Fedora'
+        fail_msg: >-
+          This baseline supports Fedora only. Detected
+          {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.
+
+    - name: Validate required inventory groups
+      ansible.builtin.assert:
+        that:
+          - groups.get('control_plane', []) | length >= 1
+          - groups.get('workers', []) | length >= 1
+          - inventory_hostname in (groups.get('control_plane', []) + groups.get('workers', []))
+        fail_msg: >-
+          Inventory must contain control_plane and workers groups, and every
+          targeted host must belong to one of them.
+
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - cluster_network_cidr | length > 0
+          - management_network_cidrs | length > 0
+          - kubernetes_minor_version is match('^[0-9]+\.[0-9]+$')
+        fail_msg: "Cluster network, management CIDRs, or Kubernetes version is invalid."
+
+  roles:
+    - role: prereqs
+    - role: hardening
+
+  post_tasks:
+    - name: Report successful node baseline completion
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} passed prerequisite and hardening verification.
+          The node is ready for the future kubeadm cluster-bootstrap playbook.

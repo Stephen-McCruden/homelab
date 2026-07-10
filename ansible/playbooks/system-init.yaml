@@ -1,7 +1,0 @@
----
-- name: System Initialization (Prerequisites & Hardening)
-  hosts: all
-  become: true
-  roles:
-    - ../roles/prereqs
-    - ../roles/hardening

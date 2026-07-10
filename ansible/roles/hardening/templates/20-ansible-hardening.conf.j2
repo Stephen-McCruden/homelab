@@ -1,0 +1,13 @@
+# FILE PATH: roles/hardening/templates/20-ansible-hardening.conf.j2
+# PURPOSE: Keep this file at exactly this path inside the Ansible project.
+# Managed by Ansible. Local changes will be overwritten.
+PermitRootLogin {{ ssh_permit_root_login }}
+PasswordAuthentication {{ ssh_password_authentication }}
+KbdInteractiveAuthentication no
+PubkeyAuthentication {{ ssh_pubkey_authentication }}
+MaxAuthTries {{ ssh_max_auth_tries }}
+LoginGraceTime {{ ssh_login_grace_time }}
+X11Forwarding no
+AllowTcpForwarding yes
+ClientAliveInterval {{ ssh_client_alive_interval }}
+ClientAliveCountMax {{ ssh_client_alive_count_max }}
