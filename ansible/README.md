@@ -1,14 +1,30 @@
-> **FILE PATH:** `README.md`  
-> Keep this file at exactly this path inside the Ansible project.
+# FILE PATH: README.md
+# Homelab Ansible
 
-# Fedora Kubernetes Node Baseline
+Production-style Fedora Kubernetes node automation for Terraform-created Proxmox VMs.
 
-Run one command from this directory:
+## Normal operation
 
 ```bash
-ansible-playbook system-init.yml
+ansible-playbook playbooks/system-init.yml
 ```
 
-The playbook automatically reconciles SSH host keys for Terraform-recreated nodes, configures prerequisites, applies host hardening, and verifies the result.
+This single playbook reconciles ephemeral SSH host keys, configures package management, prerequisites, containerd, Kubernetes tools, firewalling, hardening, and verifies the final state.
 
-Read `FILE-MAP.md` for exact file placement and `procedures/SYSTEM-INIT-PROCEDURE.md` for operating details, Tailscale behavior, rebuild handling, and security notes.
+## Repository layout
+
+- `playbooks/`: operational entry points
+- `roles/`: reusable configuration units
+- `inventory/`: environment inventory
+- `procedures/`: operator runbooks
+- `docs/ADR/`: architecture decisions
+- `.github/workflows/`: automated static validation
+
+## Controller setup
+Normal operation requires only Ansible Core on the controller. The operational playbook uses built-in modules and does not require Galaxy collections. Development-only lint and CI tools are installed with `make install`.
+
+## Lifecycle boundary
+`system-init.yml` prepares nodes only. `kube-bootstrap.yml`, upgrades, and destructive reset automation remain gated until their own procedures are designed and tested.
+
+## Automated testing
+GitHub Actions runs YAML linting, Ansible linting, syntax validation, and a privileged Fedora Molecule scenario. Molecule's built-in idempotence phase converges the tested roles a second time and fails when tasks still report changes.

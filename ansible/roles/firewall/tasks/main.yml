@@ -1,0 +1,87 @@
+# FILE PATH: roles/firewall/tasks/main.yml
+---
+- name: Install firewalld
+  ansible.builtin.dnf5:
+    name: firewalld
+    state: present
+
+- name: Enable and start firewalld
+  ansible.builtin.systemd_service:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Read permanent firewalld zones
+  ansible.builtin.command: firewall-cmd --permanent --get-zones
+  register: firewalld_zones
+  changed_when: false
+
+- name: Create source-restricted Kubernetes zone
+  ansible.builtin.command: "firewall-cmd --permanent --new-zone={{ kubernetes_firewall_zone }}"
+  when: kubernetes_firewall_zone not in firewalld_zones.stdout.split()
+  register: zone_created
+  changed_when: true
+
+- name: Reload firewalld after zone creation
+  ansible.builtin.command: firewall-cmd --reload
+  when: zone_created.changed
+  changed_when: true
+
+- name: Query configured zone sources
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --query-source={{ item }}"
+  loop: "{{ ([cluster_network_cidr] + management_network_cidrs + tailscale_management_cidrs) | unique }}"
+  register: source_queries
+  changed_when: false
+  failed_when: source_queries.rc not in [0, 1]
+
+- name: Add missing management and cluster sources
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --add-source={{ item.item }}"
+  loop: "{{ source_queries.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc == 1
+  register: source_changes
+  changed_when: true
+
+- name: Query SSH service in restricted zone
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --query-service=ssh"
+  register: ssh_service_query
+  changed_when: false
+  failed_when: ssh_service_query.rc not in [0, 1]
+
+- name: Permit SSH in restricted zone
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --add-service=ssh"
+  when: ssh_service_query.rc == 1
+  register: ssh_service_change
+  changed_when: true
+
+- name: Build required Kubernetes port list for this host
+  ansible.builtin.set_fact:
+    required_kubernetes_ports: >-
+      {{ (worker_ports + (control_plane_ports if inventory_hostname in groups['kubernetes_control_plane'] else []) +
+      (nodeport_ports if firewall_allow_nodeports else [])) | unique }}
+
+- name: Query required Kubernetes ports
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --query-port={{ item }}"
+  loop: "{{ required_kubernetes_ports }}"
+  register: port_queries
+  changed_when: false
+  failed_when: port_queries.rc not in [0, 1]
+
+- name: Add missing Kubernetes ports
+  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --add-port={{ item.item }}"
+  loop: "{{ port_queries.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc == 1
+  register: port_changes
+  changed_when: true
+
+- name: Reload firewalld when permanent configuration changed
+  ansible.builtin.command: firewall-cmd --reload
+  when: >-
+    zone_created.changed or
+    (source_changes.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | list | length > 0) or
+    ssh_service_change.changed | default(false) or
+    (port_changes.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | list | length > 0)
+  changed_when: true

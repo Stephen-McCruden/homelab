@@ -1,0 +1,9 @@
+# FILE PATH: playbooks/kube-bootstrap.yml
+---
+- name: Kubernetes cluster bootstrap placeholder
+  hosts: kubernetes_cluster
+  gather_facts: false
+  tasks:
+    - name: Stop until the bootstrap design is implemented and reviewed
+      ansible.builtin.fail:
+        msg: This playbook is intentionally not implemented yet. System initialization is complete; kubeadm bootstrap is the next controlled phase.

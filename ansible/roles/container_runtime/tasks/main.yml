@@ -1,0 +1,60 @@
+# FILE PATH: roles/container_runtime/tasks/main.yml
+---
+- name: Install containerd
+  ansible.builtin.dnf5:
+    name: "{{ containerd_package }}"
+    state: present
+
+- name: Create containerd configuration directory
+  ansible.builtin.file:
+    path: "{{ containerd_config_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check containerd configuration
+  ansible.builtin.stat:
+    path: "{{ containerd_config_path }}"
+  register: containerd_config
+
+- name: Generate containerd default configuration
+  ansible.builtin.command: containerd config default
+  register: containerd_default
+  changed_when: false
+  when: not containerd_config.stat.exists
+
+- name: Write initial containerd configuration
+  ansible.builtin.copy:
+    dest: "{{ containerd_config_path }}"
+    content: "{{ containerd_default.stdout }}
+"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not containerd_config.stat.exists
+  notify: Restart containerd
+
+- name: Configure containerd systemd cgroups
+  ansible.builtin.replace:
+    path: "{{ containerd_config_path }}"
+    regexp: '^(\s*SystemdCgroup\s*=\s*)false$'
+    replace: '\1true'
+  notify: Restart containerd
+
+- name: Ensure containerd CRI plugin is enabled
+  ansible.builtin.replace:
+    path: "{{ containerd_config_path }}"
+    regexp: '^disabled_plugins\s*=\s*\[.*"cri".*\]$'
+    replace: 'disabled_plugins = []'
+  notify: Restart containerd
+
+- name: Validate containerd configuration
+  ansible.builtin.command: containerd config dump
+  changed_when: false
+
+- name: Enable and start containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    enabled: true
+    state: started

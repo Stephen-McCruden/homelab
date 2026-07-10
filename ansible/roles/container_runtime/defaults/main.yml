@@ -1,0 +1,4 @@
+# FILE PATH: roles/container_runtime/defaults/main.yml
+---
+containerd_package: containerd
+containerd_config_path: /etc/containerd/config.toml

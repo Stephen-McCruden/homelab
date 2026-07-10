@@ -1,66 +1,61 @@
-> **FILE PATH:** `FILE-MAP.md`  
-> Keep this file at the root of the Ansible project.
-
-# Exact File Placement Map
-
-Every generated file now includes its own exact destination path at the very top.
+# FILE PATH: FILE-MAP.md
+# File Map
 
 ```text
-ansible-k8s-single-playbook-v3/
-├── ansible.cfg
-├── README.md
-├── FILE-MAP.md
-├── playbooks/
-│   └── system-init.yml
-├── inventory/
-│   └── hosts.yml
-├── procedures/
-│   └── SYSTEM-INIT-PROCEDURE.md
-├── scripts/
-│   └── reconcile-known-host.sh
-└── roles/
-    ├── prereqs/
-    │   ├── defaults/
-    │   │   └── main.yml
-    │   ├── handlers/
-    │   │   └── main.yml
-    │   ├── tasks/
-    │   │   ├── main.yml
-    │   │   └── verify.yml
-    │   └── templates/
-    │       ├── kubernetes.repo.j2
-    │       ├── kubernetes-modules.conf.j2
-    │       └── kubernetes-sysctl.conf.j2
-    └── hardening/
-        ├── defaults/
-        │   └── main.yml
-        ├── handlers/
-        │   └── main.yml
-        ├── tasks/
-        │   ├── main.yml
-        │   └── verify.yml
-        └── templates/
-            └── 20-ansible-hardening.conf.j2
+.ansible-lint
+.github/workflows/ansible-ci.yml
+.gitignore
+.yamllint
+CHANGELOG.md
+Makefile
+README.md
+VERSION
+ansible.cfg
+docs/ADR/0001-separate-provisioning-and-configuration.md
+docs/ARCHITECTURE.md
+inventory/hosts.yml
+molecule/default/converge.yml
+molecule/default/molecule.yml
+molecule/default/prepare.yml
+molecule/default/verify.yml
+playbooks/kube-bootstrap.yml
+playbooks/kube-reset.yml
+playbooks/system-init.yml
+playbooks/upgrade.yml
+playbooks/verify.yml
+procedures/SYSTEM-INIT-PROCEDURE.md
+requirements-dev.txt
+requirements.yml
+roles/container_runtime/README.md
+roles/container_runtime/defaults/main.yml
+roles/container_runtime/handlers/main.yml
+roles/container_runtime/meta/main.yml
+roles/container_runtime/tasks/main.yml
+roles/firewall/README.md
+roles/firewall/defaults/main.yml
+roles/firewall/meta/main.yml
+roles/firewall/tasks/main.yml
+roles/hardening/README.md
+roles/hardening/defaults/main.yml
+roles/hardening/handlers/main.yml
+roles/hardening/meta/main.yml
+roles/hardening/tasks/main.yml
+roles/kubernetes_node/README.md
+roles/kubernetes_node/defaults/main.yml
+roles/kubernetes_node/meta/main.yml
+roles/kubernetes_node/tasks/main.yml
+roles/package_manager/README.md
+roles/package_manager/defaults/main.yml
+roles/package_manager/meta/main.yml
+roles/package_manager/tasks/main.yml
+roles/prereqs/README.md
+roles/prereqs/defaults/main.yml
+roles/prereqs/handlers/main.yml
+roles/prereqs/meta/main.yml
+roles/prereqs/tasks/main.yml
+roles/verification/README.md
+roles/verification/defaults/main.yml
+roles/verification/meta/main.yml
+roles/verification/tasks/main.yml
+scripts/reconcile-known-host.sh
 ```
-
-## The three `main.yml` files in each role
-
-They have the same filename because Ansible uses the parent directory to determine their function.
-
-### Prerequisites role
-
-| Exact path | Function |
-|---|---|
-| `roles/prereqs/defaults/main.yml` | Default variables for the prerequisites role |
-| `roles/prereqs/tasks/main.yml` | Tasks executed by the prerequisites role |
-| `roles/prereqs/handlers/main.yml` | Service reload/restart handlers for the prerequisites role |
-
-### Hardening role
-
-| Exact path | Function |
-|---|---|
-| `roles/hardening/defaults/main.yml` | Default variables for the hardening role |
-| `roles/hardening/tasks/main.yml` | Tasks executed by the hardening role |
-| `roles/hardening/handlers/main.yml` | Service reload/restart handlers for the hardening role |
-
-Do not place all three files in one directory. Preserve the extracted directory tree exactly.

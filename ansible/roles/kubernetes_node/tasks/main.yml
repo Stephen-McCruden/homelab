@@ -1,0 +1,28 @@
+# FILE PATH: roles/kubernetes_node/tasks/main.yml
+---
+- name: Configure versioned Kubernetes repository
+  ansible.builtin.copy:
+    dest: "{{ kubernetes_repo_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [kubernetes]
+      name=Kubernetes
+      baseurl=https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/repodata/repomd.xml.key
+      exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+
+- name: Install Kubernetes node tools
+  ansible.builtin.dnf5:
+    name: "{{ kubernetes_node_packages }}"
+    state: present
+    disable_excludes: kubernetes
+    update_cache: true
+
+- name: Enable kubelet for later cluster bootstrap
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true

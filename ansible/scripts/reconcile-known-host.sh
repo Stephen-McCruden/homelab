@@ -1,36 +1,17 @@
 #!/usr/bin/env bash
 # FILE PATH: scripts/reconcile-known-host.sh
-# PURPOSE: Keep this file at exactly this path inside the Ansible project.
 set -euo pipefail
-
-address="${1:?usage: reconcile-known-host.sh ADDRESS [KNOWN_HOSTS_FILE]}"
-known_hosts_file="${2:-${HOME}/.ssh/known_hosts}"
-ssh_dir="$(dirname "$known_hosts_file")"
-
-mkdir -p "$ssh_dir"
-touch "$known_hosts_file"
-chmod 700 "$ssh_dir"
-chmod 600 "$known_hosts_file"
-
-scan_output="$(ssh-keyscan -T 10 -t ed25519 "$address" 2>/dev/null || true)"
-if [[ -z "$scan_output" ]]; then
-  echo "ERROR: unable to retrieve an ED25519 SSH host key from ${address}" >&2
-  exit 2
+host="${1:?host required}"; known_hosts="${2:?known_hosts path required}"
+mkdir -p "$(dirname "$known_hosts")"; touch "$known_hosts"; chmod 600 "$known_hosts"
+scan="$(mktemp)"; trap 'rm -f "$scan"' EXIT
+for i in {1..12}; do ssh-keyscan -T 5 -H "$host" >"$scan" 2>/dev/null && [[ -s "$scan" ]] && break; sleep 5; done
+[[ -s "$scan" ]] || { echo "Unable to scan SSH host key for $host" >&2; exit 1; }
+old="$(ssh-keygen -F "$host" -f "$known_hosts" 2>/dev/null || true)"
+if [[ -n "$old" ]]; then
+  current_plain="$(ssh-keyscan -T 5 "$host" 2>/dev/null | awk '{print $2" "$3}' | sort -u)"
+  old_plain="$(printf '%s
+' "$old" | awk '!/^#/ {print $2" "$3}' | sort -u)"
+  [[ "$current_plain" == "$old_plain" ]] && { echo "UNCHANGED: $host"; exit 0; }
+  ssh-keygen -R "$host" -f "$known_hosts" >/dev/null
 fi
-
-current_keys="$(ssh-keygen -F "$address" -f "$known_hosts_file" 2>/dev/null \
-  | awk '!/^#/ && NF >= 3 {print $2 " " $3}' \
-  | sort -u || true)"
-scanned_keys="$(printf '%s\n' "$scan_output" \
-  | awk 'NF >= 3 {print $2 " " $3}' \
-  | sort -u)"
-
-if [[ "$current_keys" == "$scanned_keys" ]]; then
-  echo "UNCHANGED: ${address}"
-  exit 0
-fi
-
-ssh-keygen -R "$address" -f "$known_hosts_file" >/dev/null 2>&1 || true
-printf '%s\n' "$scan_output" >> "$known_hosts_file"
-chmod 600 "$known_hosts_file"
-echo "UPDATED: ${address}"
+cat "$scan" >> "$known_hosts"; echo "UPDATED: $host"

@@ -1,0 +1,47 @@
+# FILE PATH: roles/verification/tasks/main.yml
+---
+- name: Flush pending handlers before validation
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify required services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+  register: service_status
+  failed_when: service_status.status.ActiveState != 'active'
+  changed_when: false
+  loop: [containerd, firewalld]
+
+- name: Check active swap
+  ansible.builtin.command: swapon --noheadings --show
+  register: verify_swap
+  changed_when: false
+  failed_when: verify_swap.stdout | trim | length > 0
+
+- name: Check required sysctls
+  ansible.builtin.command: "sysctl -n {{ item.key }}"
+  register: verify_sysctl
+  changed_when: false
+  failed_when: verify_sysctl.stdout | trim != item.value
+  loop:
+    - { key: net.bridge.bridge-nf-call-iptables, value: '1' }
+    - { key: net.bridge.bridge-nf-call-ip6tables, value: '1' }
+    - { key: net.ipv4.ip_forward, value: '1' }
+
+- name: Verify SELinux enforcing
+  ansible.builtin.command: getenforce
+  register: verify_selinux
+  changed_when: false
+  failed_when: verify_selinux.stdout | trim != 'Enforcing'
+
+- name: Verify effective SSH settings
+  ansible.builtin.command: sshd -T
+  register: verify_sshd
+  changed_when: false
+  failed_when: >-
+    'permitrootlogin no' not in verify_sshd.stdout or
+    'passwordauthentication no' not in verify_sshd.stdout
+
+- name: Verify Kubernetes tools
+  ansible.builtin.command: "{{ item }} --version"
+  loop: [kubeadm, kubelet, kubectl]
+  changed_when: false

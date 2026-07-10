@@ -1,0 +1,6 @@
+# FILE PATH: roles/container_runtime/handlers/main.yml
+---
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    state: restarted

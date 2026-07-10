@@ -1,0 +1,12 @@
+# FILE PATH: roles/firewall/meta/main.yml
+---
+galaxy_info:
+  role_name: firewall
+  author: Stephen McCruden
+  description: Homelab Kubernetes node firewall role.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Fedora
+      versions: [all]
+dependencies: []

@@ -1,0 +1,12 @@
+# FILE PATH: molecule/default/prepare.yml
+---
+- name: Prepare Fedora test container
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Install Python, sudo, OpenSSH, and systemd prerequisites
+      ansible.builtin.raw: dnf5 -y install python3 sudo openssh-server procps-ng iproute
+      changed_when: true
+    - name: Generate ephemeral SSH host keys
+      ansible.builtin.command: ssh-keygen -A
+      changed_when: true

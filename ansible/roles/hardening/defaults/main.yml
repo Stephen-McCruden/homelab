@@ -1,27 +1,4 @@
 # FILE PATH: roles/hardening/defaults/main.yml
-# PURPOSE: Keep this file at exactly this path inside the Ansible project.
 ---
-firewalld_zone: kubernetes
-management_network_cidrs:
-  - "{{ cluster_network_cidr }}"
-
-control_plane_ports:
-  - 6443/tcp
-  - 2379-2380/tcp
-  - 10250/tcp
-  - 10257/tcp
-  - 10259/tcp
-
-worker_ports:
-  - 10250/tcp
-
-firewall_allow_nodeport_range: false
-nodeport_range: 30000-32767/tcp
-
-ssh_permit_root_login: "no"
-ssh_password_authentication: "no"
-ssh_pubkey_authentication: "yes"
-ssh_max_auth_tries: 4
-ssh_login_grace_time: 30
-ssh_client_alive_interval: 300
-ssh_client_alive_count_max: 2
+ssh_hardening_dropin: /etc/ssh/sshd_config.d/20-ansible-hardening.conf
+ssh_authorized_key_user: "{{ ansible_user }}"

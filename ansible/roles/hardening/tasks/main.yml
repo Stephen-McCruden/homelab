@@ -1,154 +1,51 @@
 # FILE PATH: roles/hardening/tasks/main.yml
-# PURPOSE: Keep this file at exactly this path inside the Ansible project.
 ---
-- name: Install host-hardening packages
-  ansible.builtin.dnf:
-    name:
-      - firewalld
-      - openssh-server
-      - policycoreutils
-      - python3-libselinux
-    state: present
-
-- name: Ensure SELinux is enforcing now and after reboot
-  ansible.builtin.selinux:
-    policy: targeted
-    state: enforcing
-
-- name: Ensure sshd is enabled and running
-  ansible.builtin.systemd_service:
-    name: sshd
-    state: started
-    enabled: true
-
-- name: Ensure firewalld is enabled and running
-  ansible.builtin.systemd_service:
-    name: firewalld
-    state: started
-    enabled: true
-
-- name: Read permanent firewalld zones
-  ansible.builtin.command: firewall-cmd --permanent --get-zones
-  register: hardening_firewall_zones
+- name: Read current SELinux mode
+  ansible.builtin.command: getenforce
+  register: selinux_mode
   changed_when: false
 
-- name: Create dedicated Kubernetes firewalld zone
-  ansible.builtin.command: "firewall-cmd --permanent --new-zone={{ firewalld_zone }}"
-  when: firewalld_zone not in hardening_firewall_zones.stdout.split()
+- name: Set SELinux enforcing immediately
+  ansible.builtin.command: setenforce 1
+  when: selinux_mode.stdout | trim != 'Enforcing'
   changed_when: true
-  notify: Reload firewalld
 
-- name: Read sources assigned to Kubernetes zone
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ firewalld_zone }} --list-sources"
-  register: hardening_zone_sources
-  changed_when: false
+- name: Persist SELinux enforcing mode
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: SELINUX=enforcing
+    backup: true
 
-- name: Bind approved networks to Kubernetes zone
-  ansible.builtin.command: >-
-    firewall-cmd --permanent --zone={{ firewalld_zone }} --add-source={{ item }}
-  loop: "{{ ([cluster_network_cidr] + management_network_cidrs + (tailscale_management_cidrs | default([]))) | unique }}"
-  when: item not in hardening_zone_sources.stdout.split()
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Read services assigned to Kubernetes zone
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ firewalld_zone }} --list-services"
-  register: hardening_zone_services
-  changed_when: false
-
-- name: Permit SSH in the source-restricted Kubernetes zone
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ firewalld_zone }} --add-service=ssh"
-  when: "'ssh' not in hardening_zone_services.stdout.split()"
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Read services assigned to public zone
-  ansible.builtin.command: firewall-cmd --permanent --zone=public --list-services
-  register: hardening_public_services
-  changed_when: false
-
-- name: Remove unrestricted SSH from public zone
-  ansible.builtin.command: firewall-cmd --permanent --zone=public --remove-service=ssh
-  when: "'ssh' in hardening_public_services.stdout.split()"
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Read ports assigned to Kubernetes zone
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ firewalld_zone }} --list-ports"
-  register: hardening_zone_ports
-  changed_when: false
-
-- name: Permit required control-plane ports
-  ansible.builtin.command: >-
-    firewall-cmd --permanent --zone={{ firewalld_zone }} --add-port={{ item }}
-  loop: "{{ control_plane_ports }}"
-  when:
-    - inventory_hostname in groups.get('control_plane', [])
-    - item not in hardening_zone_ports.stdout.split()
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Permit required worker ports
-  ansible.builtin.command: >-
-    firewall-cmd --permanent --zone={{ firewalld_zone }} --add-port={{ item }}
-  loop: "{{ worker_ports }}"
-  when:
-    - inventory_hostname in groups.get('workers', [])
-    - item not in hardening_zone_ports.stdout.split()
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Optionally permit NodePort range
-  ansible.builtin.command: >-
-    firewall-cmd --permanent --zone={{ firewalld_zone }} --add-port={{ nodeport_range }}
-  when:
-    - inventory_hostname in groups.get('workers', [])
-    - firewall_allow_nodeport_range | bool
-    - nodeport_range not in hardening_zone_ports.stdout.split()
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Remove NodePort range when disabled
-  ansible.builtin.command: >-
-    firewall-cmd --permanent --zone={{ firewalld_zone }} --remove-port={{ nodeport_range }}
-  when:
-    - not (firewall_allow_nodeport_range | bool)
-    - nodeport_range in hardening_zone_ports.stdout.split()
-  changed_when: true
-  notify: Reload firewalld
-
-- name: Determine remote login user home directory
-  ansible.builtin.getent:
-    database: passwd
-    key: "{{ ansible_user }}"
-
-- name: Check authorized_keys before disabling password authentication
+- name: Verify administrative authorized_keys exists before disabling passwords
   ansible.builtin.stat:
-    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
-  register: hardening_authorized_keys
+    path: "/home/{{ ssh_authorized_key_user }}/.ssh/authorized_keys"
+  register: admin_authorized_keys
 
-- name: Refuse unsafe SSH hardening without a public key
+- name: Assert administrative SSH key is present
   ansible.builtin.assert:
     that:
-      - hardening_authorized_keys.stat.exists
-      - hardening_authorized_keys.stat.isreg
-      - hardening_authorized_keys.stat.size | int > 0
-    fail_msg: >-
-      Refusing to disable password authentication because the login user's
-      authorized_keys file is missing or empty on {{ inventory_hostname }}.
+      - admin_authorized_keys.stat.exists
+      - admin_authorized_keys.stat.size | int > 0
+    fail_msg: Refusing to disable password SSH because authorized_keys is absent or empty.
 
-- name: Install managed SSH hardening drop-in
-  ansible.builtin.template:
-    src: 20-ansible-hardening.conf.j2
-    dest: /etc/ssh/sshd_config.d/20-ansible-hardening.conf
+- name: Install SSH hardening drop-in
+  ansible.builtin.copy:
+    dest: "{{ ssh_hardening_dropin }}"
     owner: root
     group: root
     mode: "0600"
     validate: /usr/sbin/sshd -t -f %s
+    content: |
+      # Managed by Ansible
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PubkeyAuthentication yes
+      MaxAuthTries 3
+      LoginGraceTime 30
+      X11Forwarding no
+      AllowTcpForwarding yes
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
   notify: Restart sshd
-
-- name: Flush hardening handlers before verification
-  ansible.builtin.meta: flush_handlers
-
-- name: Verify hardening state
-  ansible.builtin.import_tasks: verify.yml

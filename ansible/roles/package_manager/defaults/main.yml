@@ -1,0 +1,4 @@
+# FILE PATH: roles/package_manager/defaults/main.yml
+---
+package_manager_cache_retries: 2
+package_manager_retry_delay: 10
