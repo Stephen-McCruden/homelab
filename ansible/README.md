@@ -1,4 +1,4 @@
-# Homelab Ansible v2.1
+# Homelab Ansible v1
 
 Run the complete Fedora Kubernetes node baseline with:
 
