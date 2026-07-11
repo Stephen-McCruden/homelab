@@ -40,8 +40,8 @@ flux_bootstrap_github_private: false
 flux_bootstrap_git_author_name: Flux
 flux_bootstrap_git_author_email: stephen@mccruden.com
 
-# Read only on the Ansible controller. It is sent to the bootstrap process
-# only when Flux is not already configured.
+# Read only from the Ansible controller environment. The token is needed
+# during the initial GitHub bootstrap and is not required for later runs.
 flux_bootstrap_github_token: >-
   {{ lookup('ansible.builtin.env', 'GITHUB_TOKEN') }}
 
@@ -53,3 +53,9 @@ flux_bootstrap_controller_deployments:
   - kustomize-controller
   - helm-controller
   - notification-controller
+
+flux_bootstrap_managed_kustomizations:
+  - flux-system
+  - infrastructure-controllers
+  - infrastructure-configs
+  - applications

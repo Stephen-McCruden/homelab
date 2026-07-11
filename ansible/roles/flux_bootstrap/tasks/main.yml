@@ -1,6 +1,6 @@
 # FILE PATH: roles/flux_bootstrap/tasks/main.yml
 # PURPOSE: Install a pinned Flux CLI, bootstrap Flux against GitHub when
-#          required, and verify GitOps reconciliation health.
+#          required, and verify the complete GitOps reconciliation chain.
 ---
 
 - name: Validate Flux bootstrap variables
@@ -14,6 +14,7 @@
       - flux_bootstrap_github_path | length > 0
       - flux_bootstrap_kubeconfig_path | length > 0
       - flux_bootstrap_controller_deployments | length > 0
+      - flux_bootstrap_managed_kustomizations | length > 0
     fail_msg: >-
       One or more required Flux bootstrap variables are invalid.
 
@@ -164,6 +165,23 @@
   changed_when: false
   failed_when: false
 
+- name: Check for Flux authentication Secret
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - get
+      - secret
+      - flux-system
+      - --output
+      - name
+  register: flux_bootstrap_authentication_secret
+  changed_when: false
+  failed_when: false
+
 - name: Validate existing Flux bootstrap state
   ansible.builtin.assert:
     that:
@@ -171,11 +189,18 @@
         (flux_bootstrap_git_repository.rc == 0)
         ==
         (flux_bootstrap_root_kustomization.rc == 0)
+      - >-
+        (flux_bootstrap_git_repository.rc == 0)
+        ==
+        (flux_bootstrap_authentication_secret.rc == 0)
     fail_msg: >-
       Flux is in a partial bootstrap state.
       GitRepository exists={{ flux_bootstrap_git_repository.rc == 0 }},
       root Kustomization exists={{
         flux_bootstrap_root_kustomization.rc == 0
+      }},
+      authentication Secret exists={{
+        flux_bootstrap_authentication_secret.rc == 0
       }}.
       Investigate or remove the partial Flux installation before retrying.
 
@@ -221,6 +246,46 @@
   when: flux_bootstrap_required | bool
   no_log: true
 
+- name: Wait for Flux authentication Secret
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - wait
+      - --for=create
+      - secret/flux-system
+      - "--timeout={{ flux_bootstrap_timeout }}"
+  changed_when: false
+
+- name: Read Flux authentication Secret keys
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - get
+      - secret
+      - flux-system
+      - --output
+      - jsonpath={.data.identity}{.data.known_hosts}
+  register: flux_bootstrap_authentication_secret_data
+  changed_when: false
+  no_log: true
+
+- name: Verify Flux SSH authentication material exists
+  ansible.builtin.assert:
+    that:
+      - flux_bootstrap_authentication_secret_data.stdout | length > 0
+    fail_msg: >-
+      Flux authentication Secret exists but does not contain the expected
+      SSH identity and known-hosts data.
+  no_log: true
+
 - name: Wait for Flux controller deployments
   ansible.builtin.command:
     argv:
@@ -252,7 +317,35 @@
   register: flux_bootstrap_source_ready
   changed_when: false
 
-- name: Wait for Flux root Kustomization readiness
+- name: Read Flux GitRepository branch reference
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - get
+      - gitrepository
+      - flux-system
+      - --output
+      - jsonpath={.spec.ref.branch}
+  register: flux_bootstrap_source_branch
+  changed_when: false
+
+- name: Verify Flux GitRepository follows expected branch
+  ansible.builtin.assert:
+    that:
+      - >-
+        flux_bootstrap_source_branch.stdout | trim
+        ==
+        flux_bootstrap_github_branch
+    fail_msg: >-
+      Flux GitRepository follows branch
+      {{ flux_bootstrap_source_branch.stdout | trim }},
+      expected {{ flux_bootstrap_github_branch }}.
+
+- name: Wait for every managed Flux Kustomization
   ansible.builtin.command:
     argv:
       - kubectl
@@ -261,11 +354,38 @@
       - --namespace
       - "{{ flux_bootstrap_namespace }}"
       - wait
-      - kustomization/flux-system
+      - "kustomization/{{ item }}"
       - --for=condition=Ready
       - "--timeout={{ flux_bootstrap_timeout }}"
-  register: flux_bootstrap_sync_ready
+  loop: "{{ flux_bootstrap_managed_kustomizations }}"
+  register: flux_bootstrap_kustomization_readiness
   changed_when: false
+
+- name: Read managed Flux Kustomization conditions
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - get
+      - kustomization
+      - "{{ item }}"
+      - --output
+      - jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  loop: "{{ flux_bootstrap_managed_kustomizations }}"
+  register: flux_bootstrap_kustomization_conditions
+  changed_when: false
+
+- name: Verify every managed Flux Kustomization is Ready
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim == 'True'
+    fail_msg: >-
+      Flux Kustomization {{ item.item }} is not Ready.
+      Ready condition was {{ item.stdout | trim | default('missing', true) }}.
+  loop: "{{ flux_bootstrap_kustomization_conditions.results }}"
 
 - name: Verify complete Flux installation
   ansible.builtin.command:
