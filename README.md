@@ -219,8 +219,6 @@ SELinux remains enabled but is currently configured in permissive mode on Kubern
 9. Restore testing
 10. Stateful applications
 
-Minecraft is intentionally outside this Kubernetes platform and runs as a Docker workload on a separate server.
-
 ## Documentation Philosophy
 
 The repository documents not only successful configuration but also boundaries, assumptions, validation, security tradeoffs, and recovery procedures.
