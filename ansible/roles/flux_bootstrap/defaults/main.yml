@@ -1,0 +1,55 @@
+# FILE PATH: roles/flux_bootstrap/defaults/main.yml
+# PURPOSE: Defaults for installing and bootstrapping Flux against GitHub.
+---
+
+flux_bootstrap_version: "v2.9.1"
+flux_bootstrap_version_without_prefix: >-
+  {{ flux_bootstrap_version | regex_replace('^v', '') }}
+
+flux_bootstrap_architecture: amd64
+
+flux_bootstrap_archive_name: >-
+  flux_{{ flux_bootstrap_version_without_prefix }}_linux_{{ flux_bootstrap_architecture }}.tar.gz
+
+flux_bootstrap_checksums_name: >-
+  flux_{{ flux_bootstrap_version_without_prefix }}_checksums.txt
+
+flux_bootstrap_release_base_url: >-
+  https://github.com/fluxcd/flux2/releases/download/{{ flux_bootstrap_version }}
+
+flux_bootstrap_archive_url: >-
+  {{ flux_bootstrap_release_base_url }}/{{ flux_bootstrap_archive_name }}
+
+flux_bootstrap_checksums_url: >-
+  {{ flux_bootstrap_release_base_url }}/{{ flux_bootstrap_checksums_name }}
+
+flux_bootstrap_download_directory: >-
+  /var/tmp/flux-{{ flux_bootstrap_version }}
+
+flux_bootstrap_binary_path: /usr/local/bin/flux
+flux_bootstrap_kubeconfig_path: /etc/kubernetes/admin.conf
+
+flux_bootstrap_github_owner: Stephen-McCruden
+flux_bootstrap_github_repository: homelab
+flux_bootstrap_github_branch: main
+flux_bootstrap_github_path: clusters/homelab
+
+flux_bootstrap_github_personal: true
+flux_bootstrap_github_private: false
+
+flux_bootstrap_git_author_name: Flux
+flux_bootstrap_git_author_email: stephen@mccruden.com
+
+# Read only on the Ansible controller. It is sent to the bootstrap process
+# only when Flux is not already configured.
+flux_bootstrap_github_token: >-
+  {{ lookup('ansible.builtin.env', 'GITHUB_TOKEN') }}
+
+flux_bootstrap_namespace: flux-system
+flux_bootstrap_timeout: 10m
+
+flux_bootstrap_controller_deployments:
+  - source-controller
+  - kustomize-controller
+  - helm-controller
+  - notification-controller

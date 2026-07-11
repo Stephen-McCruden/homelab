@@ -1,0 +1,43 @@
+# FILE PATH: playbooks/platform-bootstrap.yml
+# PURPOSE: Bootstrap the GitOps platform and verify repository
+#          reconciliation.
+---
+
+- name: Bootstrap Flux GitOps platform
+  hosts: control_plane
+  gather_facts: true
+  become: true
+  serial: 1
+
+  pre_tasks:
+    - name: Validate Kubernetes administrative kubeconfig exists
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: platform_bootstrap_admin_conf
+
+    - name: Assert Kubernetes control plane is initialized
+      ansible.builtin.assert:
+        that:
+          - platform_bootstrap_admin_conf.stat.exists
+          - platform_bootstrap_admin_conf.stat.isreg
+        fail_msg: >-
+          Kubernetes admin.conf does not exist. Run
+          playbooks/cluster-bootstrap.yml successfully before
+          playbooks/platform-bootstrap.yml.
+
+    - name: Verify Kubernetes API readiness
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - /etc/kubernetes/admin.conf
+          - get
+          - --raw=/readyz
+      register: platform_bootstrap_api_readiness
+      changed_when: false
+      failed_when:
+        - platform_bootstrap_api_readiness.rc != 0
+          or platform_bootstrap_api_readiness.stdout | trim != 'ok'
+
+  roles:
+    - role: flux_bootstrap

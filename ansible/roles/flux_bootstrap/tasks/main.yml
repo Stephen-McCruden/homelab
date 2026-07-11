@@ -1,0 +1,294 @@
+# FILE PATH: roles/flux_bootstrap/tasks/main.yml
+# PURPOSE: Install a pinned Flux CLI, bootstrap Flux against GitHub when
+#          required, and verify GitOps reconciliation health.
+---
+
+- name: Validate Flux bootstrap variables
+  ansible.builtin.assert:
+    that:
+      - flux_bootstrap_version is match('^v[0-9]+\.[0-9]+\.[0-9]+$')
+      - flux_bootstrap_architecture in ['amd64', 'arm64']
+      - flux_bootstrap_github_owner | length > 0
+      - flux_bootstrap_github_repository | length > 0
+      - flux_bootstrap_github_branch | length > 0
+      - flux_bootstrap_github_path | length > 0
+      - flux_bootstrap_kubeconfig_path | length > 0
+      - flux_bootstrap_controller_deployments | length > 0
+    fail_msg: >-
+      One or more required Flux bootstrap variables are invalid.
+
+- name: Check whether Flux CLI is installed
+  ansible.builtin.stat:
+    path: "{{ flux_bootstrap_binary_path }}"
+  register: flux_bootstrap_binary
+
+- name: Read installed Flux CLI version
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_bootstrap_binary_path }}"
+      - version
+      - --client
+  register: flux_bootstrap_installed_version
+  changed_when: false
+  failed_when: false
+  when: flux_bootstrap_binary.stat.exists
+
+- name: Determine whether Flux CLI installation is required
+  ansible.builtin.set_fact:
+    flux_bootstrap_cli_install_required: >-
+      {{
+        not flux_bootstrap_binary.stat.exists
+        or
+        flux_bootstrap_version
+        not in
+        (
+          flux_bootstrap_installed_version.stdout
+          | default('')
+        )
+      }}
+
+- name: Ensure Flux download directory exists
+  ansible.builtin.file:
+    path: "{{ flux_bootstrap_download_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: flux_bootstrap_cli_install_required | bool
+
+- name: Download Flux CLI archive
+  ansible.builtin.get_url:
+    url: "{{ flux_bootstrap_archive_url }}"
+    dest: >-
+      {{ flux_bootstrap_download_directory }}/{{ flux_bootstrap_archive_name }}
+    owner: root
+    group: root
+    mode: "0644"
+  when: flux_bootstrap_cli_install_required | bool
+
+- name: Download Flux CLI checksums
+  ansible.builtin.get_url:
+    url: "{{ flux_bootstrap_checksums_url }}"
+    dest: >-
+      {{ flux_bootstrap_download_directory }}/{{ flux_bootstrap_checksums_name }}
+    owner: root
+    group: root
+    mode: "0644"
+  when: flux_bootstrap_cli_install_required | bool
+
+- name: Verify Flux CLI archive checksum
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep ' {{ flux_bootstrap_archive_name }}$' \
+      "{{ flux_bootstrap_checksums_name }}" |
+    sha256sum --check -
+  args:
+    chdir: "{{ flux_bootstrap_download_directory }}"
+    executable: /bin/bash
+  changed_when: false
+  when: flux_bootstrap_cli_install_required | bool
+
+- name: Extract Flux CLI
+  ansible.builtin.unarchive:
+    src: >-
+      {{ flux_bootstrap_download_directory }}/{{ flux_bootstrap_archive_name }}
+    dest: /usr/local/bin
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+    include:
+      - flux
+  when: flux_bootstrap_cli_install_required | bool
+
+- name: Verify Flux CLI version
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_bootstrap_binary_path }}"
+      - version
+      - --client
+  register: flux_bootstrap_cli_version
+  changed_when: false
+
+- name: Assert expected Flux CLI version is installed
+  ansible.builtin.assert:
+    that:
+      - flux_bootstrap_version in flux_bootstrap_cli_version.stdout
+    fail_msg: >-
+      Installed Flux CLI version does not match
+      {{ flux_bootstrap_version }}.
+      Output was: {{ flux_bootstrap_cli_version.stdout }}.
+
+- name: Run Flux Kubernetes prerequisite check
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_bootstrap_binary_path }}"
+      - check
+      - --pre
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+  register: flux_bootstrap_precheck
+  changed_when: false
+
+- name: Check for Flux GitRepository
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - get
+      - gitrepository
+      - flux-system
+      - --output
+      - name
+  register: flux_bootstrap_git_repository
+  changed_when: false
+  failed_when: false
+
+- name: Check for Flux root Kustomization
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - get
+      - kustomization
+      - flux-system
+      - --output
+      - name
+  register: flux_bootstrap_root_kustomization
+  changed_when: false
+  failed_when: false
+
+- name: Validate existing Flux bootstrap state
+  ansible.builtin.assert:
+    that:
+      - >-
+        (flux_bootstrap_git_repository.rc == 0)
+        ==
+        (flux_bootstrap_root_kustomization.rc == 0)
+    fail_msg: >-
+      Flux is in a partial bootstrap state.
+      GitRepository exists={{ flux_bootstrap_git_repository.rc == 0 }},
+      root Kustomization exists={{
+        flux_bootstrap_root_kustomization.rc == 0
+      }}.
+      Investigate or remove the partial Flux installation before retrying.
+
+- name: Record whether Flux bootstrap is required
+  ansible.builtin.set_fact:
+    flux_bootstrap_required: >-
+      {{ flux_bootstrap_git_repository.rc != 0 }}
+
+- name: Validate GitHub token is available for initial bootstrap
+  ansible.builtin.assert:
+    that:
+      - flux_bootstrap_github_token | length > 0
+    fail_msg: >-
+      Initial Flux bootstrap requires GITHUB_TOKEN in the Ansible
+      controller environment. Export a GitHub fine-grained personal
+      access token and rerun platform-bootstrap.yml.
+  when: flux_bootstrap_required | bool
+  no_log: true
+
+- name: Bootstrap Flux against GitHub repository
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_bootstrap_binary_path }}"
+      - bootstrap
+      - github
+      - "--owner={{ flux_bootstrap_github_owner }}"
+      - "--repository={{ flux_bootstrap_github_repository }}"
+      - "--branch={{ flux_bootstrap_github_branch }}"
+      - "--path={{ flux_bootstrap_github_path }}"
+      - "--personal={{ flux_bootstrap_github_personal | lower }}"
+      - "--private={{ flux_bootstrap_github_private | lower }}"
+      - --token-auth=false
+      - --read-write-key=false
+      - "--author-name={{ flux_bootstrap_git_author_name }}"
+      - "--author-email={{ flux_bootstrap_git_author_email }}"
+      - "--version={{ flux_bootstrap_version }}"
+      - "--kubeconfig={{ flux_bootstrap_kubeconfig_path }}"
+      - "--timeout={{ flux_bootstrap_timeout }}"
+  environment:
+    GITHUB_TOKEN: "{{ flux_bootstrap_github_token }}"
+  register: flux_bootstrap_result
+  changed_when: flux_bootstrap_result.rc == 0
+  when: flux_bootstrap_required | bool
+  no_log: true
+
+- name: Wait for Flux controller deployments
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - rollout
+      - status
+      - "deployment/{{ item }}"
+      - "--timeout={{ flux_bootstrap_timeout }}"
+  loop: "{{ flux_bootstrap_controller_deployments }}"
+  register: flux_bootstrap_controller_rollouts
+  changed_when: false
+
+- name: Wait for Flux GitRepository readiness
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - wait
+      - gitrepository/flux-system
+      - --for=condition=Ready
+      - "--timeout={{ flux_bootstrap_timeout }}"
+  register: flux_bootstrap_source_ready
+  changed_when: false
+
+- name: Wait for Flux root Kustomization readiness
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+      - --namespace
+      - "{{ flux_bootstrap_namespace }}"
+      - wait
+      - kustomization/flux-system
+      - --for=condition=Ready
+      - "--timeout={{ flux_bootstrap_timeout }}"
+  register: flux_bootstrap_sync_ready
+  changed_when: false
+
+- name: Verify complete Flux installation
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_bootstrap_binary_path }}"
+      - check
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+  register: flux_bootstrap_check
+  changed_when: false
+
+- name: Read Flux reconciliation status
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_bootstrap_binary_path }}"
+      - get
+      - all
+      - --all-namespaces
+      - --kubeconfig
+      - "{{ flux_bootstrap_kubeconfig_path }}"
+  register: flux_bootstrap_status
+  changed_when: false
+
+- name: Report Flux reconciliation status
+  ansible.builtin.debug:
+    var: flux_bootstrap_status.stdout_lines

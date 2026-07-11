@@ -1,0 +1,7 @@
+# FILE PATH: kubernetes/infrastructure/controllers/kustomization.yaml
+# PURPOSE: Entry point for GitOps-managed Kubernetes controllers.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources: []
