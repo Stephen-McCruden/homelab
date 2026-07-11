@@ -1,0 +1,41 @@
+# Example non-secret environment configuration
+---
+ansible_user: YOUR_ADMIN_USERNAME
+ansible_ssh_private_key_file: /home/YOUR_USER/.ssh/id_ed25519
+ansible_python_interpreter: /usr/bin/python3
+
+cluster_network_cidr: 192.168.0.0/24
+
+management_network_cidrs:
+  - 192.168.0.0/24
+
+tailscale_management_cidrs: []
+
+kubernetes_minor_version: "1.36"
+
+firewall_allow_nodeport_range: false
+firewall_remove_ssh_from_public_zone: false
+ssh_hardening_enabled: true
+
+kubeadm_config_cluster_name: homelab
+kubeadm_config_control_plane_endpoint: "192.168.0.52:6443"
+kubeadm_config_pod_subnet: "10.244.0.0/16"
+kubeadm_config_service_subnet: "10.96.0.0/12"
+kubeadm_config_dns_domain: cluster.local
+kubeadm_config_cri_socket: unix:///run/containerd/containerd.sock
+kubeadm_config_file_path: /etc/kubernetes/kubeadm-init.yaml
+
+kubeconfig_admin_user: YOUR_ADMIN_USERNAME
+kubeconfig_admin_group: YOUR_ADMIN_USERNAME
+kubeconfig_admin_home: /home/YOUR_ADMIN_USERNAME
+kubeconfig_controller_path: /home/YOUR_USER/.kube/homelab-admin.conf
+
+cilium_version: "1.19.5"
+cilium_cli_version: "v0.19.4"
+cilium_operator_replicas: 2
+
+worker_join_token_ttl: 30m
+worker_join_cri_socket: unix:///run/containerd/containerd.sock
+
+cluster_verification_node_timeout: 10m
+cluster_verification_coredns_timeout: 5m

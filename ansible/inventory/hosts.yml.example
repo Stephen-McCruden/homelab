@@ -1,0 +1,16 @@
+# Example inventory
+---
+all:
+  children:
+    kubernetes_cluster:
+      children:
+        control_plane:
+          hosts:
+            k8s-master-01:
+              ansible_host: 192.168.0.52
+        workers:
+          hosts:
+            k8s-worker-01:
+              ansible_host: 192.168.0.50
+            k8s-worker-02:
+              ansible_host: 192.168.0.51

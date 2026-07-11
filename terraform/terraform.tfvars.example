@@ -1,0 +1,49 @@
+# Copy to terraform.tfvars and replace every placeholder.
+# Never place private SSH keys in this file.
+
+proxmox_api_url          = "https://PROXMOX-MANAGEMENT-IP:8006/api2/json"
+proxmox_api_token_id     = "terraform-user@pve!homelab"
+proxmox_api_token_secret = "REPLACE_WITH_PROXMOX_TOKEN_SECRET"
+proxmox_insecure         = true
+
+pve_iso_datastore = "local"
+pve_vm_datastore  = "local-lvm"
+
+os_image_url      = "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2"
+os_image_filename = "fedora-cloud-base.qcow2"
+
+vm_disk_size = 30
+ssh_username = "YOUR_ADMIN_USERNAME"
+
+ssh_public_keys = [
+  "ssh-ed25519 REPLACE_WITH_CONTROLLER_PUBLIC_KEY controller",
+]
+
+network_gateway = "192.168.0.1"
+network_bridge  = "vmbr0"
+
+k8s_nodes = {
+  k8s-worker-01 = {
+    node   = "pve1"
+    vmid   = 150
+    ip     = "192.168.0.50/24"
+    cores  = 4
+    memory = 8192
+  }
+
+  k8s-worker-02 = {
+    node   = "pve2"
+    vmid   = 151
+    ip     = "192.168.0.51/24"
+    cores  = 4
+    memory = 8192
+  }
+
+  k8s-master-01 = {
+    node   = "pve3"
+    vmid   = 152
+    ip     = "192.168.0.52/24"
+    cores  = 4
+    memory = 8192
+  }
+}

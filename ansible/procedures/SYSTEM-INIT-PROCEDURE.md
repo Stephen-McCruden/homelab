@@ -1,36 +1,74 @@
 # System Initialization Procedure
 
-## Controller prerequisites
+## Purpose
 
-- Terraform-created Fedora nodes are reachable.
-- The controller SSH private key matches `inventory/group_vars/all.yml`.
-- Ansible Core 2.16 or newer is installed.
+Converge fresh Terraform-provisioned Fedora nodes into a validated Kubernetes node baseline.
 
-## Run
+## Preconditions
+
+- Terraform completed successfully.
+- All three VMs are reachable over SSH.
+- Inventory addresses match Terraform.
+- The configured private key matches an injected public key.
+- The remote user has passwordless sudo.
+- Commands are run from `ansible/`.
+
+## Preflight
 
 ```bash
 cd /home/stoof/GitHub/homelab/ansible
 ansible-inventory --graph
+ansible all -m ping
 ansible-playbook playbooks/system-init.yml --syntax-check
-ansible-playbook playbooks/system-init.yml
+ansible-lint playbooks/system-init.yml
+```
+
+## Execute
+
+```bash
 ansible-playbook playbooks/system-init.yml
 ```
 
-The first run converges fresh nodes. The second run should report `changed=0` for managed nodes.
+## Expected Actions
 
-## DNF behavior
+- Reconcile controller `known_hosts`
+- Validate Fedora and inventory
+- Suppress conflicting automatic DNF jobs
+- Install prerequisites
+- Configure kernel modules, sysctls, swap, and zram
+- Install and configure containerd
+- Install Kubernetes packages
+- Configure firewalld and SSH hardening
+- Configure SELinux permissive mode
+- Verify resulting state
 
-The repository intentionally contains no explicit `dnf5 makecache --refresh` command. Package transactions refresh required metadata themselves. Cache deletion occurs only after a failed package transaction.
+## Idempotency
 
-## Fedora OSC 3008 warning
+```bash
+ansible-playbook playbooks/system-init.yml
+```
 
-Fedora 44/systemd may append OSC 3008 markers to output from commands executed through sudo. Ansible currently reports those markers as `Module invocation had junk after the JSON data`. This is an upstream interaction and does not mean a role printed output. The baseline does not weaken PAM, enable root SSH, or alter system login accounting merely to hide the warning.
+Expected:
 
-## Fedora DNF5 transaction protection
+```text
+changed=0
+failed=0
+unreachable=0
+```
 
-The package-manager role disables `dnf-makecache.timer`, stops active automatic
-metadata jobs, and waits for package-manager processes to exit before installing
-packages. This avoids a Fedora 44 DNF5 race in which simultaneous makecache and
-package transactions can leave cached RPM payloads unreadable during signature
-validation. Package transactions are serialized across nodes and the cache is
-removed only after a real transaction failure.
+## DNF5 Behavior
+
+The package-manager role disables `dnf-makecache.timer`, stops stale automatic makecache processes, serializes sensitive package transactions, retains GPG verification, and removes cached payloads only after a real transaction failure.
+
+Do not add an unconditional `dnf5 makecache --refresh`.
+
+## SELinux
+
+SELinux remains enabled but permissive so AVC denials remain auditable while kubeadm static Pods operate.
+
+## Failure Handling
+
+- **Unreachable:** check routing, TCP 22, username, key path, injected key, and cloud-init.
+- **Sudo failure:** configure noninteractive passwordless sudo.
+- **Package signature failure:** allow the recovery block to complete; do not disable GPG.
+- **Partial convergence:** correct the cause and rerun the same playbook.
