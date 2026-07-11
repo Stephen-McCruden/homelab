@@ -1,6 +1,6 @@
 # FILE PATH: playbooks/cluster-bootstrap.yml
-# PURPOSE: Bootstrap the initial Kubernetes control plane and retrieve
-#          administrative kubeconfig credentials.
+# PURPOSE: Initialize the control plane, join workers when required,
+#          install Cilium, retrieve kubeconfig, and verify cluster health.
 ---
 
 - name: Bootstrap initial Kubernetes control plane
@@ -34,13 +34,167 @@
 
   roles:
     - role: kubeadm_config
-      tags:
-        - kubeadm-config
-
     - role: control_plane
-      tags:
-        - control-plane
-
     - role: kubeconfig
-      tags:
-        - kubeconfig
+
+- name: Prepare all Kubernetes nodes for Cilium
+  hosts: kubernetes_cluster
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: cilium_node
+
+- name: Detect worker nodes requiring kubeadm join
+  hosts: workers
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Check for worker kubelet kubeconfig
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_join_detection_kubelet_conf
+
+    - name: Check for worker kubelet configuration
+      ansible.builtin.stat:
+        path: /var/lib/kubelet/config.yaml
+      register: worker_join_detection_kubelet_config
+
+    - name: Validate worker kubeadm state consistency
+      ansible.builtin.assert:
+        that:
+          - >-
+            worker_join_detection_kubelet_conf.stat.exists
+            ==
+            worker_join_detection_kubelet_config.stat.exists
+        fail_msg: >-
+          {{ inventory_hostname }} is in a partial kubeadm join state.
+          kubelet.conf exists={{
+            worker_join_detection_kubelet_conf.stat.exists
+          }},
+          config.yaml exists={{
+            worker_join_detection_kubelet_config.stat.exists
+          }}.
+          Reset or rebuild this worker before continuing.
+
+    - name: Record whether worker requires cluster join
+      ansible.builtin.set_fact:
+        worker_join_required: >-
+          {{ not worker_join_detection_kubelet_conf.stat.exists }}
+
+- name: Generate Kubernetes worker join credentials when required
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Initialize worker join requirement list
+      ansible.builtin.set_fact:
+        worker_join_required_hosts: []
+
+    - name: Build worker join requirement list
+      ansible.builtin.set_fact:
+        worker_join_required_hosts: >-
+          {{ worker_join_required_hosts + [item] }}
+      loop: "{{ groups['workers'] }}"
+      when: hostvars[item].worker_join_required | bool
+
+    - name: Report workers requiring cluster join
+      ansible.builtin.debug:
+        msg: >-
+          Workers requiring join:
+          {{
+            worker_join_required_hosts
+            if worker_join_required_hosts | length > 0
+            else 'none'
+          }}
+
+    - name: Generate temporary worker bootstrap token
+      ansible.builtin.command:
+        argv:
+          - kubeadm
+          - token
+          - create
+          - --ttl
+          - "{{ worker_join_token_ttl }}"
+      register: worker_join_token_result
+      changed_when: true
+      no_log: true
+      when: worker_join_required_hosts | length > 0
+
+    - name: Calculate Kubernetes CA certificate hash
+      ansible.builtin.shell: |
+        set -o pipefail
+        openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt |
+        openssl rsa -pubin -outform der 2>/dev/null |
+        openssl dgst -sha256 -hex |
+        sed 's/^.* /sha256:/'
+      args:
+        executable: /bin/bash
+      register: worker_join_ca_hash_result
+      changed_when: false
+      no_log: true
+      when: worker_join_required_hosts | length > 0
+
+    - name: Store temporary worker join credentials
+      ansible.builtin.set_fact:
+        worker_join_bootstrap_token: >-
+          {{ worker_join_token_result.stdout | trim }}
+        worker_join_ca_cert_hash: >-
+          {{ worker_join_ca_hash_result.stdout | trim }}
+      no_log: true
+      when: worker_join_required_hosts | length > 0
+
+- name: Join Kubernetes worker nodes when required
+  hosts: workers
+  gather_facts: true
+  become: true
+  serial: 1
+
+  roles:
+    - role: worker_join
+
+- name: Verify worker nodes registered before CNI installation
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Wait for every worker node object to exist
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - /etc/kubernetes/admin.conf
+          - get
+          - node
+          - "{{ item }}"
+          - --output
+          - name
+      loop: "{{ groups['workers'] }}"
+      register: worker_node_registration
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: worker_node_registration.rc == 0
+
+- name: Install Cilium networking
+  hosts: control_plane
+  gather_facts: true
+  become: true
+  serial: 1
+
+  roles:
+    - role: cilium
+
+- name: Verify complete Kubernetes cluster health
+  hosts: control_plane
+  gather_facts: false
+  become: true
+  serial: 1
+
+  roles:
+    - role: cluster_verification

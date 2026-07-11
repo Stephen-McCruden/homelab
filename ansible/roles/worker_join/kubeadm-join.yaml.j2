@@ -1,0 +1,22 @@
+# FILE PATH: roles/worker_join/templates/kubeadm-join.yaml.j2
+# PURPOSE: kubeadm v1beta4 worker JoinConfiguration.
+# MANAGED BY ANSIBLE. MANUAL CHANGES WILL BE OVERWRITTEN.
+
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: JoinConfiguration
+
+discovery:
+  bootstrapToken:
+    apiServerEndpoint: "{{ kubeadm_config_control_plane_endpoint }}"
+    token: >-
+      {{ hostvars[groups['control_plane'][0]].worker_join_bootstrap_token }}
+    caCertHashes:
+      - >-
+        {{ hostvars[groups['control_plane'][0]].worker_join_ca_cert_hash }}
+
+nodeRegistration:
+  name: "{{ inventory_hostname }}"
+  criSocket: "{{ worker_join_cri_socket }}"
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ ansible_host }}"

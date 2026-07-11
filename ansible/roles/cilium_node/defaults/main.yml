@@ -1,0 +1,9 @@
+# FILE PATH: roles/cilium_node/defaults/main.yml
+# PURPOSE: Defaults required on every node before Cilium is installed.
+---
+
+cilium_node_firewall_zone: kubernetes
+
+cilium_node_required_ports:
+  - 8472/udp
+  - 4240/tcp

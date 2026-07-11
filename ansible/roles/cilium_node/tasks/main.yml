@@ -1,0 +1,67 @@
+# FILE PATH: roles/cilium_node/tasks/main.yml
+# PURPOSE: Prepare every Kubernetes node for Cilium overlay networking.
+---
+
+- name: Validate Cilium node firewall variables
+  ansible.builtin.assert:
+    that:
+      - cilium_node_firewall_zone | length > 0
+      - cilium_node_required_ports | length > 0
+    fail_msg: >-
+      The Cilium firewall zone and required port list must be configured.
+
+- name: Query permanent Cilium firewall ports
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ cilium_node_firewall_zone }}"
+      - "--query-port={{ item }}"
+  loop: "{{ cilium_node_required_ports }}"
+  register: cilium_node_port_queries
+  changed_when: false
+  failed_when: false
+
+- name: Add missing Cilium firewall ports
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ cilium_node_firewall_zone }}"
+      - "--add-port={{ item.item }}"
+  loop: "{{ cilium_node_port_queries.results }}"
+  when: item.rc != 0
+  register: cilium_node_ports_added
+  changed_when: true
+
+- name: Reload firewalld after Cilium port changes
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --reload
+  when:
+    - cilium_node_ports_added is defined
+    - cilium_node_ports_added is changed
+  changed_when: true
+
+- name: Verify Cilium VXLAN port is configured
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ cilium_node_firewall_zone }}"
+      - --query-port=8472/udp
+  register: cilium_node_vxlan_port
+  changed_when: false
+  failed_when: cilium_node_vxlan_port.rc != 0
+
+- name: Verify Cilium health port is configured
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ cilium_node_firewall_zone }}"
+      - --query-port=4240/tcp
+  register: cilium_node_health_port
+  changed_when: false
+  failed_when: cilium_node_health_port.rc != 0

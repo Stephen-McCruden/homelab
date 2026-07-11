@@ -1,0 +1,8 @@
+# FILE PATH: roles/worker_join/defaults/main.yml
+# PURPOSE: Defaults for joining worker nodes to the Kubernetes cluster.
+---
+
+worker_join_config_path: /etc/kubernetes/kubeadm-join.yaml
+worker_join_token_ttl: 30m
+worker_join_cri_socket: unix:///run/containerd/containerd.sock
+worker_join_control_plane_kubeconfig: /etc/kubernetes/admin.conf

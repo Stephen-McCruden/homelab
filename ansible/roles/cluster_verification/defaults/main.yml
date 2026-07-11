@@ -1,0 +1,7 @@
+# FILE PATH: roles/cluster_verification/defaults/main.yml
+# PURPOSE: Defaults for final Kubernetes cluster validation.
+---
+
+cluster_verification_kubeconfig_path: /etc/kubernetes/admin.conf
+cluster_verification_node_timeout: 10m
+cluster_verification_coredns_timeout: 5m

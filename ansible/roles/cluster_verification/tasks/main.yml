@@ -1,0 +1,107 @@
+# FILE PATH: roles/cluster_verification/tasks/main.yml
+# PURPOSE: Verify all nodes, Cilium, CoreDNS, and Kubernetes API health.
+---
+
+- name: Wait for all Kubernetes nodes to become Ready
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cluster_verification_kubeconfig_path }}"
+      - wait
+      - --for=condition=Ready
+      - node
+      - --all
+      - "--timeout={{ cluster_verification_node_timeout }}"
+  register: cluster_verification_nodes_ready
+  changed_when: false
+
+- name: Read registered Kubernetes node names
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cluster_verification_kubeconfig_path }}"
+      - get
+      - nodes
+      - --output
+      - jsonpath={.items[*].metadata.name}
+  register: cluster_verification_registered_nodes
+  changed_when: false
+
+- name: Verify every inventory node is registered
+  ansible.builtin.assert:
+    that:
+      - item in cluster_verification_registered_nodes.stdout.split()
+    fail_msg: >-
+      Inventory host {{ item }} is not registered in Kubernetes.
+  loop: "{{ groups['kubernetes_cluster'] }}"
+
+- name: Wait for CoreDNS rollout
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cluster_verification_kubeconfig_path }}"
+      - --namespace
+      - kube-system
+      - rollout
+      - status
+      - deployment/coredns
+      - "--timeout={{ cluster_verification_coredns_timeout }}"
+  register: cluster_verification_coredns
+  changed_when: false
+
+- name: Verify Kubernetes API readiness
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cluster_verification_kubeconfig_path }}"
+      - get
+      - --raw=/readyz
+  register: cluster_verification_api_readiness
+  changed_when: false
+  failed_when:
+    - cluster_verification_api_readiness.rc != 0
+      or cluster_verification_api_readiness.stdout | trim != 'ok'
+
+- name: Read non-running system Pods
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cluster_verification_kubeconfig_path }}"
+      - --namespace
+      - kube-system
+      - get
+      - pods
+      - --field-selector=status.phase!=Running
+      - --no-headers
+  register: cluster_verification_non_running_system_pods
+  changed_when: false
+
+- name: Verify no kube-system Pods remain outside Running phase
+  ansible.builtin.assert:
+    that:
+      - cluster_verification_non_running_system_pods.stdout | trim == ''
+    fail_msg: >-
+      One or more kube-system Pods are not Running:
+      {{ cluster_verification_non_running_system_pods.stdout }}
+
+- name: Display final Kubernetes node status
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cluster_verification_kubeconfig_path }}"
+      - get
+      - nodes
+      - --output
+      - wide
+  register: cluster_verification_node_status
+  changed_when: false
+
+- name: Report final Kubernetes node status
+  ansible.builtin.debug:
+    var: cluster_verification_node_status.stdout_lines

@@ -31,3 +31,16 @@ kubeconfig_admin_user: stoof
 kubeconfig_admin_group: stoof
 kubeconfig_admin_home: /home/stoof
 kubeconfig_controller_path: /home/stoof/.kube/homelab-admin.conf
+
+# Cilium networking
+cilium_version: "1.19.5"
+cilium_cli_version: "v0.19.4"
+cilium_operator_replicas: 2
+
+# Worker joining
+worker_join_token_ttl: 30m
+worker_join_cri_socket: unix:///run/containerd/containerd.sock
+
+# Cluster verification
+cluster_verification_node_timeout: 10m
+cluster_verification_coredns_timeout: 5m

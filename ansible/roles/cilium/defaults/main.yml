@@ -1,0 +1,22 @@
+# FILE PATH: roles/cilium/defaults/main.yml
+# PURPOSE: Version-pinned Cilium installation defaults.
+---
+
+cilium_version: "1.19.5"
+cilium_cli_version: "v0.19.4"
+
+cilium_cli_architecture: amd64
+cilium_cli_archive: >-
+  cilium-linux-{{ cilium_cli_architecture }}.tar.gz
+
+cilium_cli_download_url: >-
+  https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/{{ cilium_cli_archive }}
+
+cilium_cli_checksum_url: >-
+  {{ cilium_cli_download_url }}.sha256sum
+
+cilium_cli_download_directory: /var/tmp/cilium-cli
+cilium_cli_install_path: /usr/local/bin/cilium
+
+cilium_kubeconfig_path: /etc/kubernetes/admin.conf
+cilium_operator_replicas: 2
