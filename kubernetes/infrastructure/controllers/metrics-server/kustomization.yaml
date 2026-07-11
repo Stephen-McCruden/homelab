@@ -1,0 +1,10 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/metrics-server/kustomization.yaml
+# PURPOSE: Install Metrics Server through Flux and Helm.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - helmrepository.yaml
+  - helmrelease.yaml
