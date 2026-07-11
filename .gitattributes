@@ -1,2 +1,4 @@
 *.yaml linguist-detectable=true
 *.yaml linguist-language=Python
+*.yml linguist-detectable=true
+*.yml linguist-detectable=Python
