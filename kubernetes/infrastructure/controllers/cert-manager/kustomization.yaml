@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/cert-manager/kustomization.yaml
+# PURPOSE: Install cert-manager and its CustomResourceDefinitions.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - helmrepository.yaml
+  - helmrelease.yaml

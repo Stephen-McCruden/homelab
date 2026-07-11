@@ -1,0 +1,13 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/cert-manager/helmrepository.yaml
+# PURPOSE: Register the official cert-manager OCI Helm repository.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cert-manager
+  namespace: flux-system
+spec:
+  interval: 1h
+  type: oci
+  url: oci://quay.io/jetstack/charts

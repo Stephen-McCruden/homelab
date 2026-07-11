@@ -1,0 +1,106 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/cert-manager/helmrelease.yaml
+# PURPOSE: Deploy and continuously reconcile cert-manager through Flux.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 30m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: cert-manager
+      version: "v1.21.0"
+      sourceRef:
+        kind: HelmRepository
+        name: cert-manager
+        namespace: flux-system
+      interval: 1h
+
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 5m
+    cleanupOnFail: true
+
+  values:
+    crds:
+      enabled: true
+      keep: true
+
+    replicaCount: 2
+
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+    webhook:
+      replicaCount: 2
+
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+
+      timeoutSeconds: 10
+
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+    cainjector:
+      replicaCount: 2
+
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 192Mi
+
+    startupapicheck:
+      enabled: true
+      timeout: 5m
+
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 50m
+          memory: 64Mi
+
+    prometheus:
+      enabled: true
+
+      servicemonitor:
+        enabled: false
+
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 192Mi
