@@ -1,0 +1,10 @@
+# FILE PATH: roles/kubeconfig/defaults/main.yml
+# PURPOSE: Defaults for installing and retrieving the Kubernetes
+#          administrative kubeconfig.
+---
+
+kubeconfig_admin_user: stoof
+kubeconfig_admin_group: stoof
+kubeconfig_admin_home: /home/stoof
+
+kubeconfig_controller_path: /home/stoof/.kube/homelab-admin.conf

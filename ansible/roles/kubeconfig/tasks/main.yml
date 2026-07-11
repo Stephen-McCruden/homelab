@@ -1,0 +1,44 @@
+# FILE PATH: roles/kubeconfig/tasks/main.yml
+# PURPOSE: Install the administrative kubeconfig for the remote user and
+#          securely retrieve it to the Ansible controller.
+---
+
+- name: Ensure remote administrator kubeconfig directory exists
+  ansible.builtin.file:
+    path: "{{ kubeconfig_admin_home }}/.kube"
+    state: directory
+    owner: "{{ kubeconfig_admin_user }}"
+    group: "{{ kubeconfig_admin_group }}"
+    mode: "0700"
+
+- name: Install admin kubeconfig for remote administrator
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ kubeconfig_admin_home }}/.kube/config"
+    remote_src: true
+    owner: "{{ kubeconfig_admin_user }}"
+    group: "{{ kubeconfig_admin_group }}"
+    mode: "0600"
+
+- name: Ensure controller kubeconfig directory exists
+  ansible.builtin.file:
+    path: "{{ kubeconfig_controller_path | dirname }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Fetch Kubernetes admin kubeconfig to controller
+  ansible.builtin.fetch:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ kubeconfig_controller_path }}"
+    flat: true
+  no_log: true
+
+- name: Secure controller kubeconfig permissions
+  ansible.builtin.file:
+    path: "{{ kubeconfig_controller_path }}"
+    state: file
+    mode: "0600"
+  delegate_to: localhost
+  become: false

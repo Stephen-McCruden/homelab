@@ -1,0 +1,41 @@
+# FILE PATH: roles/kubeadm_config/templates/kubeadm-init.yaml.j2
+# PURPOSE: kubeadm v1beta4 configuration for the initial homelab
+#          control plane.
+# MANAGED BY ANSIBLE. MANUAL CHANGES WILL BE OVERWRITTEN.
+
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+
+localAPIEndpoint:
+  advertiseAddress: "{{ ansible_host }}"
+  bindPort: 6443
+
+nodeRegistration:
+  name: "{{ inventory_hostname }}"
+  criSocket: "{{ kubeadm_config_cri_socket }}"
+
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+
+clusterName: "{{ kubeadm_config_cluster_name }}"
+kubernetesVersion: "{{ kubeadm_config_detected_kubernetes_version }}"
+controlPlaneEndpoint: "{{ kubeadm_config_control_plane_endpoint }}"
+
+networking:
+  podSubnet: "{{ kubeadm_config_pod_subnet }}"
+  serviceSubnet: "{{ kubeadm_config_service_subnet }}"
+  dnsDomain: "{{ kubeadm_config_dns_domain }}"
+
+apiServer:
+  certSANs:
+    - "{{ inventory_hostname }}"
+    - "{{ ansible_host }}"
+
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+
+cgroupDriver: systemd
+rotateCertificates: true
+serverTLSBootstrap: true

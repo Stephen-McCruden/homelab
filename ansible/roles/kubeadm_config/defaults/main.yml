@@ -1,0 +1,15 @@
+# FILE PATH: roles/kubeadm_config/defaults/main.yml
+# PURPOSE: Default values for rendering the kubeadm initialization
+#          configuration.
+---
+
+kubeadm_config_file_path: /etc/kubernetes/kubeadm-init.yaml
+
+kubeadm_config_cluster_name: homelab
+kubeadm_config_control_plane_endpoint: "192.168.0.52:6443"
+
+kubeadm_config_pod_subnet: "10.244.0.0/16"
+kubeadm_config_service_subnet: "10.96.0.0/12"
+kubeadm_config_dns_domain: cluster.local
+
+kubeadm_config_cri_socket: unix:///run/containerd/containerd.sock

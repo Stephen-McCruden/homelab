@@ -9,6 +9,8 @@ kubernetes_prerequisite_packages:
   - iproute-tc
   - iptables
   - socat
+  - runc
+  - cri-tools
 kubernetes_kernel_modules:
   - overlay
   - br_netfilter

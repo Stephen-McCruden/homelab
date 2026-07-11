@@ -7,3 +7,8 @@ terraform.tvars
 .terraform.tfstate.lock.info
 
 .terraform/
+
+# Kubernetes credentials
+*.kubeconfig
+*.-admin.conf
+.kube/

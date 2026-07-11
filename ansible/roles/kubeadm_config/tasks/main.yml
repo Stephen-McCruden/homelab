@@ -1,0 +1,60 @@
+# FILE PATH: roles/kubeadm_config/tasks/main.yml
+# PURPOSE: Detect the installed Kubernetes version and render a validated
+#          kubeadm v1beta4 initialization configuration.
+---
+
+- name: Read installed kubeadm version
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - version
+      - -o
+      - short
+  register: kubeadm_config_version_result
+  changed_when: false
+  check_mode: false
+
+- name: Store detected Kubernetes version
+  ansible.builtin.set_fact:
+    kubeadm_config_detected_kubernetes_version: >-
+      {{ kubeadm_config_version_result.stdout | trim }}
+
+- name: Assert kubeadm version was detected
+  ansible.builtin.assert:
+    that:
+      - >-
+        kubeadm_config_detected_kubernetes_version
+        is match('^v[0-9]+\.[0-9]+\.[0-9]+')
+    fail_msg: >-
+      Unable to determine the installed kubeadm version.
+      Output was: {{ kubeadm_config_version_result.stdout }}
+
+- name: Ensure Kubernetes configuration directory exists
+  ansible.builtin.file:
+    path: /etc/kubernetes
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render kubeadm initialization configuration
+  ansible.builtin.template:
+    src: kubeadm-init.yaml.j2
+    dest: "{{ kubeadm_config_file_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: kubeadm_config_template_result
+
+- name: Validate kubeadm initialization configuration
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - config
+      - validate
+      - --config
+      - "{{ kubeadm_config_file_path }}"
+  register: kubeadm_config_validation_result
+  changed_when: false
+  when: not ansible_check_mode
+  check_mode: false

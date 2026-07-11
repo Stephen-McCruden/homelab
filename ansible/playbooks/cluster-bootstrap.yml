@@ -1,0 +1,46 @@
+# FILE PATH: playbooks/cluster-bootstrap.yml
+# PURPOSE: Bootstrap the initial Kubernetes control plane and retrieve
+#          administrative kubeconfig credentials.
+---
+
+- name: Bootstrap initial Kubernetes control plane
+  hosts: control_plane
+  gather_facts: true
+  become: true
+  serial: 1
+
+  pre_tasks:
+    - name: Validate single-control-plane bootstrap topology
+      ansible.builtin.assert:
+        that:
+          - groups['control_plane'] | default([]) | length == 1
+          - groups['workers'] | default([]) | length > 0
+        fail_msg: >-
+          This bootstrap implementation requires exactly one control-plane
+          node and at least one worker node.
+
+    - name: Validate required bootstrap variables
+      ansible.builtin.assert:
+        that:
+          - kubeadm_config_cluster_name | length > 0
+          - kubeadm_config_control_plane_endpoint | length > 0
+          - kubeadm_config_pod_subnet | length > 0
+          - kubeadm_config_service_subnet | length > 0
+          - kubeadm_config_cri_socket | length > 0
+          - kubeadm_config_file_path | length > 0
+          - kubeconfig_controller_path | length > 0
+        fail_msg: >-
+          One or more required Kubernetes bootstrap variables are missing.
+
+  roles:
+    - role: kubeadm_config
+      tags:
+        - kubeadm-config
+
+    - role: control_plane
+      tags:
+        - control-plane
+
+    - role: kubeconfig
+      tags:
+        - kubeconfig

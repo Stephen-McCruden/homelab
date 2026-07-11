@@ -1,4 +1,19 @@
 # FILE PATH: roles/hardening/defaults/main.yml
+# PURPOSE: Default configuration for Kubernetes node security hardening.
 ---
-ssh_max_auth_tries: 3
-ssh_login_grace_time: 30
+
+# Kubernetes static control-plane Pods are currently blocked by the Fedora
+# SELinux policy when enforcing. Permissive mode keeps SELinux enabled and
+# continues recording AVC denials without blocking the cluster.
+hardening_selinux_state: permissive
+
+hardening_admin_user: "{{ ansible_user }}"
+hardening_admin_home: "/home/{{ hardening_admin_user }}"
+
+hardening_ssh_enabled: true
+hardening_ssh_max_auth_tries: 3
+hardening_ssh_login_grace_time: 30
+
+hardening_ssh_allow_agent_forwarding: false
+hardening_ssh_allow_tcp_forwarding: true
+hardening_ssh_x11_forwarding: false

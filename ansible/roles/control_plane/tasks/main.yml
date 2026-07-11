@@ -1,0 +1,93 @@
+# FILE PATH: roles/control_plane/tasks/main.yml
+# PURPOSE: Initialize the initial Kubernetes control plane idempotently.
+---
+
+- name: Check for Kubernetes administrative kubeconfig
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: control_plane_admin_conf
+
+- name: Check for Kubernetes API server static Pod manifest
+  ansible.builtin.stat:
+    path: /etc/kubernetes/manifests/kube-apiserver.yaml
+  register: control_plane_apiserver_manifest
+
+- name: Validate existing control-plane state
+  ansible.builtin.assert:
+    that:
+      - >-
+        control_plane_admin_conf.stat.exists ==
+        control_plane_apiserver_manifest.stat.exists
+    fail_msg: >-
+      The control-plane node is in an inconsistent partial-bootstrap state.
+      admin.conf exists={{ control_plane_admin_conf.stat.exists }},
+      kube-apiserver manifest exists={{
+        control_plane_apiserver_manifest.stat.exists
+      }}. Investigate before running kubeadm again.
+
+- name: Pre-pull Kubernetes control-plane images
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - config
+      - images
+      - pull
+      - --config
+      - "{{ kubeadm_config_file_path }}"
+  register: control_plane_image_pull
+  changed_when: false
+  when: not control_plane_admin_conf.stat.exists
+  check_mode: false
+
+- name: Initialize Kubernetes control plane
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - --config
+      - "{{ kubeadm_config_file_path }}"
+  register: control_plane_init_result
+  changed_when: control_plane_init_result.rc == 0
+  when: not control_plane_admin_conf.stat.exists
+  no_log: false
+  check_mode: false
+
+- name: Wait for Kubernetes API server port
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 6443
+    state: started
+    connect_timeout: 5
+    timeout: 300
+
+- name: Wait for Kubernetes API server readiness
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - /etc/kubernetes/admin.conf
+      - get
+      - --raw=/readyz
+  register: control_plane_api_readiness
+  changed_when: false
+  retries: 30
+  delay: 10
+  until:
+    - control_plane_api_readiness.rc == 0
+    - control_plane_api_readiness.stdout | trim == "ok"
+  check_mode: false
+
+- name: Verify control-plane node exists in Kubernetes API
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - /etc/kubernetes/admin.conf
+      - get
+      - node
+      - "{{ inventory_hostname }}"
+      - -o
+      - name
+  register: control_plane_node_registration
+  changed_when: false
+  check_mode: false

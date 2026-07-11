@@ -52,7 +52,7 @@ variable "os_image_filename" {
 
 variable "vm_disk_size" {
   type        = number
-  default     = 30    # This is a very low number and to properly set this up you will need more. This is only for testing as of now.
+  default     = 30 # This is a very low number and to properly set this up you will need more. This is only for testing as of now.
   description = "Root operating system disk allotment size in GB"
 }
 
@@ -82,11 +82,11 @@ variable "network_bridge" {
 
 variable "k8s_nodes" {
   type = map(object({
-    node      = string
-    vmid      = number
-    ip        = string
-    cores     = number
-    memory    = number
+    node   = string
+    vmid   = number
+    ip     = string
+    cores  = number
+    memory = number
   }))
   description = "Map of Kubernetes cluster topologies containing hardware specifications"
 }

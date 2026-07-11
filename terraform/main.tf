@@ -23,10 +23,10 @@ resource "proxmox_download_file" "fedora_cloud_image" {
 
 # 2. Provision the actual Kubernetes Virtual Machines
 resource "proxmox_virtual_environment_vm" "k8s_nodes" {
-  for_each        = var.k8s_nodes
-  name            = each.key
-  node_name       = each.value.node
-  vm_id           = each.value.vmid
+  for_each  = var.k8s_nodes
+  name      = each.key
+  node_name = each.value.node
+  vm_id     = each.value.vmid
 
   stop_on_destroy = true
 
@@ -44,15 +44,15 @@ resource "proxmox_virtual_environment_vm" "k8s_nodes" {
   }
 
   disk {
-    datastore_id  = var.pve_vm_datastore
-    interface     = "scsi0"
-    size          = var.vm_disk_size
-    import_from   = proxmox_download_file.fedora_cloud_image[each.value.node].id
+    datastore_id = var.pve_vm_datastore
+    interface    = "scsi0"
+    size         = var.vm_disk_size
+    import_from  = proxmox_download_file.fedora_cloud_image[each.value.node].id
   }
 
   initialization {
     datastore_id = var.pve_vm_datastore
-    upgrade = false
+    upgrade      = false
 
     ip_config {
       ipv4 {

@@ -1,5 +1,7 @@
 # FILE PATH: roles/hardening/handlers/main.yml
+# PURPOSE: Handlers used by the node-hardening role.
 ---
+
 - name: Restart sshd
   ansible.builtin.systemd_service:
     name: sshd

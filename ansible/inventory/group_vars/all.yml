@@ -13,3 +13,21 @@ kubernetes_minor_version: "1.36"
 firewall_allow_nodeport_range: false
 firewall_remove_ssh_from_public_zone: false
 ssh_hardening_enabled: true
+
+# Kubernetes cluster bootstrap
+kubeadm_config_cluster_name: homelab
+
+# Initial implementation uses the control-plane IP directly.
+kubeadm_config_control_plane_endpoint: "192.168.0.52:6443"
+
+kubeadm_config_pod_subnet: "10.244.0.0/16"
+kubeadm_config_service_subnet: "10.96.0.0/12"
+kubeadm_config_dns_domain: cluster.local
+
+kubeadm_config_cri_socket: unix:///run/containerd/containerd.sock
+kubeadm_config_file_path: /etc/kubernetes/kubeadm-init.yaml
+
+kubeconfig_admin_user: stoof
+kubeconfig_admin_group: stoof
+kubeconfig_admin_home: /home/stoof
+kubeconfig_controller_path: /home/stoof/.kube/homelab-admin.conf

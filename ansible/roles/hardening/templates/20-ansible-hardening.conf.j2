@@ -1,10 +1,16 @@
 # FILE PATH: roles/hardening/templates/20-ansible-hardening.conf.j2
+# PURPOSE: OpenSSH server hardening managed by Ansible.
+# MANAGED BY ANSIBLE. MANUAL CHANGES WILL BE OVERWRITTEN.
+
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
-MaxAuthTries {{ ssh_max_auth_tries }}
-LoginGraceTime {{ ssh_login_grace_time }}
-X11Forwarding no
-AllowAgentForwarding no
-AllowTcpForwarding yes
+PermitEmptyPasswords no
+
+MaxAuthTries {{ hardening_ssh_max_auth_tries }}
+LoginGraceTime {{ hardening_ssh_login_grace_time }}
+
+X11Forwarding {{ 'yes' if hardening_ssh_x11_forwarding else 'no' }}
+AllowAgentForwarding {{ 'yes' if hardening_ssh_allow_agent_forwarding else 'no' }}
+AllowTcpForwarding {{ 'yes' if hardening_ssh_allow_tcp_forwarding else 'no' }}

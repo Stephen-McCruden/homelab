@@ -1,28 +1,30 @@
 # Homelab Infrastructure Platform
 
-This repository contains the infrastructure-as-code, configuration-management, and Kubernetes resources used to build and operate my Proxmox-based home lab.
+This repository contains the infrastructure-as-code, configuration-management, Kubernetes bootstrap, and operational documentation used to build and operate my Proxmox-based home lab.
 
-The project is designed around a simple goal: the environment should be reproducible, testable, documented, and recoverable without relying on undocumented manual configuration. Terraform provisions the virtual infrastructure, Ansible prepares and hardens the operating systems, and Kubernetes will manage the platform services and application workloads.
+The central design goal is reproducibility: the environment should be provisioned, configured, validated, destroyed, and rebuilt from code without relying on undocumented manual changes.
 
-> **Current status:** Terraform provisioning and the Ansible system-initialization baseline are operational. Automated Kubernetes control-plane initialization, node joining, GitOps deployment, and disaster-recovery workflows are the next implementation phases.
+Terraform provisions the virtual infrastructure. Ansible prepares and hardens the Fedora nodes, initializes the Kubernetes control plane, and retrieves the administrative kubeconfig. Kubernetes and Flux will manage platform services and application workloads as the project progresses.
+
+> **Current status:** Terraform VM provisioning, the Ansible operating-system baseline, second-run idempotency, and automated `kubeadm` control-plane initialization are operational. Worker joining, Cilium deployment, full cluster-health verification, Flux GitOps bootstrap, and disaster-recovery automation are the next implementation phases.
 
 ---
 
 ## Project Goals
 
-- Rebuild the environment from code after a full destroy or failure.
-- Keep provisioning, operating-system configuration, and application deployment separated.
-- Make Ansible roles safe to run repeatedly without creating unintended changes.
-- Apply a secure Fedora baseline without disabling SELinux or weakening package verification.
-- Validate the resulting state automatically at the end of each playbook run.
-- Document architecture decisions, procedures, failures, and recovery testing.
-- Use the lab to practice production-style SRE, DevOps, platform-engineering, and infrastructure-operations workflows.
+- Rebuild the environment from code after a full destroy, host replacement, or service failure.
+- Separate infrastructure provisioning, operating-system configuration, cluster bootstrap, and application delivery.
+- Make playbooks safe to run repeatedly without introducing unintended changes.
+- Validate the resulting state automatically instead of relying only on successful command completion.
+- Retain package-signature verification and apply practical security controls appropriate for the platform.
+- Document architecture decisions, operating procedures, failures, incident findings, and recovery tests.
+- Practice production-style SRE, DevOps, platform-engineering, and infrastructure-operations workflows.
 
 ---
 
 ## Architecture
 
-The platform currently runs across three Proxmox VE nodes and uses Fedora Cloud virtual machines for the Kubernetes nodes.
+The platform currently uses three Proxmox VE hosts and three Fedora Cloud virtual machines for Kubernetes.
 
 ```text
 Developer workstation
@@ -36,15 +38,15 @@ Proxmox VE cluster
         +-- k8s-worker-02   192.168.0.51
 ```
 
-Remote administration is performed through Tailscale. A Proxmox node advertises the home-lab subnet, allowing the Ansible controller to reach the Kubernetes VMs securely while away from the local network.
+Remote administration is available through Tailscale. A Proxmox node advertises the home-lab subnet, allowing the workstation to reach the Kubernetes VMs securely from outside the local network.
 
 ---
 
 ## Deployment Lifecycle
 
-### 1. Infrastructure Provisioning — Terraform
+### 1. Infrastructure provisioning — Terraform
 
-Terraform communicates with the Proxmox VE API and currently manages:
+Terraform communicates with the Proxmox VE API and manages:
 
 - Fedora Cloud image downloads
 - Virtual-machine creation
@@ -52,67 +54,92 @@ Terraform communicates with the Proxmox VE API and currently manages:
 - Static IPv4 assignments
 - Cloud-init user configuration
 - SSH public-key injection
-- Reprovisioning through `terraform destroy` and `terraform apply`
+- Placement across Proxmox nodes
+- Destruction and reprovisioning
 - Remote Terraform state
 
-Terraform is responsible for creating infrastructure. It does not perform operating-system hardening or Kubernetes configuration.
+Terraform creates infrastructure. It does not perform operating-system hardening or initialize Kubernetes.
 
-### 2. System Configuration and Hardening — Ansible
+### 2. Node preparation and hardening — Ansible
 
-The primary playbook is:
+The system initialization playbook is:
 
 ```bash
 ansible-playbook playbooks/system-init.yml
 ```
 
-The playbook currently performs:
+It performs:
 
-- SSH host-key reconciliation for Terraform-recreated VMs
-- Fedora and inventory validation
-- Passwordless remote-sudo validation
-- Resilient DNF5 package installation with cache recovery
-- Kubernetes kernel-module configuration
-- Required sysctl configuration
+- Controller-side SSH host-key reconciliation for recreated VMs
+- Controller, operating-system, inventory, variable, and sudo validation
+- DNF5 transaction control and package-cache recovery
+- Automatic DNF metadata-job suppression
+- Kubernetes prerequisite installation
+- Kernel-module and sysctl configuration
 - Swap and zram disabling
-- containerd installation and systemd-cgroup configuration
-- Versioned Kubernetes repository configuration
-- `kubelet`, `kubeadm`, and `kubectl` installation
-- Firewalld configuration with a source-restricted Kubernetes zone
-- SELinux enforcement
-- SSH key-only authentication and SSH daemon hardening
-- End-of-run verification for services, swap, sysctl, SELinux, SSH, Kubernetes tools, and containerd
+- containerd 2.x installation and managed configuration
+- `SystemdCgroup = true` validation
+- Kubernetes repository and package installation
+- `kubelet`, `kubeadm`, `kubectl`, `runc`, and `crictl` verification
+- Source-restricted firewalld configuration
+- SELinux permissive mode for the current Fedora/Kubernetes compatibility requirement
+- SSH key-only access and daemon hardening
+- End-of-run service and configuration validation
 
-The Ansible design is role-based and intended to be idempotent. A second run should complete without reapplying unchanged configuration.
+The playbook is designed to converge from a fresh Terraform deployment and report no changes on a second run.
 
-### 3. Kubernetes Bootstrap — In Progress
+### 3. Kubernetes control-plane bootstrap — Ansible
+
+The cluster bootstrap playbook is:
+
+```bash
+ansible-playbook playbooks/cluster-bootstrap.yml
+```
+
+It currently performs:
+
+- kubeadm version discovery
+- kubeadm configuration rendering
+- kubeadm configuration validation
+- Control-plane image pre-pull
+- Idempotent `kubeadm init`
+- API-server port and readiness checks
+- Control-plane node registration verification
+- Administrative kubeconfig installation on the control-plane node
+- Secure kubeconfig retrieval to the Ansible controller
+
+The bootstrap role checks for partial or inconsistent control-plane state before attempting initialization.
+
+### 4. Cluster completion — In progress
 
 The next Ansible phase will automate:
 
-- `kubeadm init`
-- Control-plane configuration
-- Worker join-token generation
+- Cilium CNI deployment
+- Join-token generation
+- Worker `JoinConfiguration` rendering
 - Worker-node joining
-- CNI deployment
-- Cluster-health validation
-- Kubeconfig distribution
-- Reset and rebuild procedures
-- Upgrade procedures
+- CoreDNS and network readiness
+- All-node health verification
+- Repeated-run validation
 
-### 4. GitOps and Platform Services — Planned
+### 5. GitOps and platform services — Planned
 
-The Kubernetes layer will eventually manage:
+Flux will become responsible for continuously reconciling Kubernetes platform and application configuration from Git.
 
+Planned GitOps-managed components include:
+
+- Cilium lifecycle configuration
 - Traefik ingress
-- TLS and external routing
+- cert-manager
 - Longhorn distributed storage
 - Prometheus and Grafana
 - Loki and centralized logging
 - Alerting and service-level objectives
 - Ghost and supporting stateful services
 - Additional self-hosted workloads
-- Backup and disaster-recovery jobs
+- Backup and disaster-recovery tooling
 
-These capabilities are documented as planned work and should not be treated as completed until their manifests, procedures, and validation results are committed.
+Capabilities remain listed as planned until their code, procedures, and validation evidence are committed.
 
 ---
 
@@ -121,20 +148,22 @@ These capabilities are documented as planned work and should not be treated as c
 ```text
 .
 ├── terraform/
+│   ├── README.md
 │   ├── main.tf
 │   ├── variables.tf
 │   ├── providers.tf
 │   ├── outputs.tf
-│   └── modules/
+│   └── terraform.tfvars        # local and ignored
 │
 ├── ansible/
+│   ├── README.md
 │   ├── ansible.cfg
 │   ├── inventory/
 │   │   ├── hosts.yml
 │   │   └── group_vars/
-│   │       └── all.yml
 │   ├── playbooks/
-│   │   └── system-init.yml
+│   │   ├── system-init.yml
+│   │   └── cluster-bootstrap.yml
 │   ├── roles/
 │   │   ├── package_manager/
 │   │   ├── prereqs/
@@ -142,7 +171,10 @@ These capabilities are documented as planned work and should not be treated as c
 │   │   ├── kubernetes_node/
 │   │   ├── firewall/
 │   │   ├── hardening/
-│   │   └── verification/
+│   │   ├── verification/
+│   │   ├── kubeadm_config/
+│   │   ├── control_plane/
+│   │   └── kubeconfig/
 │   ├── scripts/
 │   ├── procedures/
 │   └── docs/
@@ -161,40 +193,48 @@ These capabilities are documented as planned work and should not be treated as c
 └── README.md
 ```
 
-The exact tree will evolve as the Kubernetes bootstrap, GitOps, observability, and recovery phases are implemented.
+The tree will evolve as worker joining, Cilium, Flux, observability, storage, applications, and recovery automation are added.
 
 ---
 
-## Current Workflow
+## Standard Workflow
+
+Run Terraform and Ansible as the normal workstation user. Do not run Ansible through local `sudo`.
 
 ### Provision or rebuild the virtual machines
 
 ```bash
 cd terraform
+terraform init
 terraform plan
 terraform apply
 ```
 
-### Prepare and harden the nodes
-
-Run Ansible as the normal local user, not through `sudo`:
+### Prepare and validate the nodes
 
 ```bash
 cd ../ansible
 ansible-playbook playbooks/system-init.yml
 ```
 
-Ansible connects to the VMs using the Terraform-provisioned SSH key and applies privilege escalation only on the remote nodes.
+### Initialize the Kubernetes control plane
 
-### Test repeatability
+```bash
+ansible-playbook playbooks/cluster-bootstrap.yml
+```
 
-Run the same playbook again:
+No manual `kubeadm init` command is required.
+
+### Verify repeatability
+
+Run both playbooks again:
 
 ```bash
 ansible-playbook playbooks/system-init.yml
+ansible-playbook playbooks/cluster-bootstrap.yml
 ```
 
-The goal is for the second run to report no unintended changes and no failures.
+The node-baseline playbook should report no changes. The cluster-bootstrap playbook must not rerun `kubeadm init` against an initialized control plane.
 
 ### Full rebuild test
 
@@ -205,9 +245,10 @@ terraform apply
 
 cd ../ansible
 ansible-playbook playbooks/system-init.yml
+ansible-playbook playbooks/cluster-bootstrap.yml
 ```
 
-The controller-side SSH reconciliation step handles changed host keys when replacement VMs reuse the same addresses.
+The controller-side SSH reconciliation step removes stale host keys when replacement VMs reuse the same names and addresses.
 
 ---
 
@@ -215,40 +256,49 @@ The controller-side SSH reconciliation step handles changed host keys when repla
 
 The current baseline includes:
 
-- SELinux enforcing
+- SELinux enabled in permissive mode
+- SELinux AVC auditing retained
 - SSH public-key authentication
 - Root SSH login disabled
 - Password authentication disabled
 - Keyboard-interactive authentication disabled
+- Empty SSH passwords disabled
 - Firewalld enabled
-- Kubernetes ports opened only in a dedicated source-restricted zone
-- NodePort range disabled unless explicitly enabled
-- GPG validation retained for package installation
-- Remote sudo validated before configuration begins
-- Administrative key presence checked before SSH passwords are disabled
+- Kubernetes ports restricted to a dedicated source-based zone
+- NodePort access disabled unless explicitly enabled
+- Package GPG verification retained
+- Remote passwordless sudo validated before configuration
+- Administrative key presence verified before password authentication is disabled
+- Sensitive Terraform variable files excluded from Git
+- Administrative Kubernetes kubeconfig stored outside the repository
 
-Public-zone SSH removal is intentionally controlled by a variable so source-restricted access can be validated before stricter firewall enforcement is enabled.
+SELinux permissive mode is a documented compatibility decision for the current Fedora 44, containerd, and kubeadm implementation. It remains enabled and records policy denials. Re-enabling enforcement remains a future hardening objective after the policy incompatibility is resolved and tested.
 
 ---
 
 ## Reliability and Testing Strategy
 
-This repository is being developed using repeated real-environment tests rather than treating successful syntax validation as sufficient.
+The repository is tested against the real Proxmox environment rather than relying only on syntax validation.
 
-Validation goals include:
+Current and planned validation includes:
 
+- Terraform formatting and validation
 - Terraform plan review
-- Ansible syntax and lint checks
+- Ansible syntax checks
+- Ansible linting
 - Successful first-run convergence
 - Successful second-run idempotency
-- Full destroy-and-rebuild testing
-- Service and configuration verification
+- Full Terraform destroy-and-rebuild testing
+- Service and configuration assertions
+- kubeadm configuration validation
+- Kubernetes API readiness checks
+- Control-plane state consistency checks
 - Failure injection
-- Recovery-time and recovery-point measurements
+- Backup restoration testing
+- Recovery-time and recovery-point measurement
 - Incident reports and postmortems
-- Backup restoration tests
 
-Molecule and GitHub Actions are planned or under development for automated syntax, lint, and role-level validation. The Proxmox environment remains the authoritative integration-test platform for systemd, SELinux, firewalld, kernel modules, swap, and VM lifecycle behavior.
+GitHub Actions and role-level automated testing will complement, not replace, integration testing against Proxmox, systemd, SELinux, firewalld, DNF5, containerd, and kubeadm.
 
 ---
 
@@ -260,28 +310,36 @@ Molecule and GitHub Actions are planned or under development for automated synta
 - Fedora Cloud VM deployment
 - Static addressing and SSH-key injection
 - Tailscale-based remote administration
-- Modular Ansible role structure
-- DNF5 package-cache recovery
+- Remote Terraform state
+- Modular Ansible roles
+- DNF5 transaction and cache recovery
 - Kubernetes node prerequisites
-- containerd configuration
+- containerd 2.x configuration
 - Kubernetes package installation
-- Firewalld baseline
-- SELinux and SSH hardening
+- `runc` and `crictl` installation
+- Source-restricted firewalld baseline
+- SSH hardening
+- SELinux compatibility configuration
 - Automated node verification
+- Second-run node-baseline idempotency
+- kubeadm configuration generation and validation
+- Automated control-plane initialization
+- Kubernetes API readiness verification
+- Administrative kubeconfig retrieval
 
 ### In progress
 
-- Final second-run idempotency cleanup
-- Automated Kubernetes bootstrap
-- Worker joining
-- CNI selection and deployment
+- Cilium deployment
+- Worker-node joining
+- Full cluster-health verification
 - CI validation
 - Expanded procedures and architecture records
 
 ### Planned
 
-- GitOps delivery
+- Flux GitOps bootstrap
 - Traefik ingress
+- cert-manager
 - Longhorn storage
 - Prometheus, Grafana, Loki, and alerting
 - SLO and SLA exercises
@@ -289,12 +347,12 @@ Molecule and GitHub Actions are planned or under development for automated synta
 - Disaster-recovery testing
 - Controlled failure simulations
 - Kubernetes upgrade automation
-- Complete environment rebuild from infrastructure-as-code only
+- Complete platform and application restoration from code and backups
 
 ---
 
 ## Documentation Philosophy
 
-The repository is intended to show not only the finished configuration but also the engineering process behind it. Architecture decisions, procedures, incident findings, postmortems, and measured recovery results will be committed alongside the code.
+This repository is intended to show both the resulting platform and the engineering process behind it. Architecture decisions, procedures, incident findings, postmortems, validation results, and measured recovery outcomes will be committed alongside the code.
 
-The objective is not to claim that a home lab is identical to a commercial production platform. The objective is to apply production-style engineering disciplines—repeatability, observability, security, testing, documentation, and recovery—to a real multi-node environment.
+The objective is not to represent a home lab as identical to a commercial production platform. The objective is to apply production-style disciplines—repeatability, observability, security, testing, documentation, controlled change, and recovery—to a real multi-node environment.
