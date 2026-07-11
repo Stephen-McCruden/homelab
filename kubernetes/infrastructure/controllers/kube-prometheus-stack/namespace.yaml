@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/kube-prometheus-stack/namespace.yaml
+# PURPOSE: Provide a dedicated namespace for cluster observability.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: homelab-platform

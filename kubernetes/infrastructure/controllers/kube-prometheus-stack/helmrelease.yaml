@@ -1,0 +1,170 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/kube-prometheus-stack/helmrelease.yaml
+# PURPOSE: Deploy Prometheus Operator, Prometheus, Alertmanager,
+#          kube-state-metrics, and node-exporter through Flux.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 30m
+  timeout: 15m
+
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: "85.4.0"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      interval: 1h
+
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 10m
+    cleanupOnFail: true
+
+  values:
+    fullnameOverride: kube-prometheus-stack
+
+    # Grafana is intentionally deployed as a separate platform component.
+    grafana:
+      enabled: false
+
+    # These kubeadm static components expose metrics only on localhost by
+    # default. Disable their monitors until their bind addresses and
+    # authentication are explicitly configured.
+    kubeControllerManager:
+      enabled: false
+
+    kubeEtcd:
+      enabled: false
+
+    kubeProxy:
+      enabled: false
+
+    kubeScheduler:
+      enabled: false
+
+    defaultRules:
+      create: true
+
+      rules:
+        etcd: false
+        kubeControllerManager: false
+        kubeProxy: false
+        kubeSchedulerAlerting: false
+        kubeSchedulerRecording: false
+
+    prometheusOperator:
+      enabled: true
+
+      admissionWebhooks:
+        enabled: true
+
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    prometheus:
+      enabled: true
+
+      service:
+        type: ClusterIP
+
+      prometheusSpec:
+        replicas: 1
+
+        retention: 7d
+        retentionSize: 8GB
+
+        enableAdminAPI: false
+        logLevel: info
+
+        resources:
+          requests:
+            cpu: 300m
+            memory: 1Gi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+
+        # Allow future ServiceMonitors, PodMonitors, PrometheusRules,
+        # and Probes from every namespace without requiring Helm
+        # release-specific labels.
+        serviceMonitorSelectorNilUsesHelmValues: false
+        serviceMonitorSelector: {}
+        serviceMonitorNamespaceSelector: {}
+
+        podMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelector: {}
+        podMonitorNamespaceSelector: {}
+
+        ruleSelectorNilUsesHelmValues: false
+        ruleSelector: {}
+        ruleNamespaceSelector: {}
+
+        probeSelectorNilUsesHelmValues: false
+        probeSelector: {}
+        probeNamespaceSelector: {}
+
+        # Intentionally ephemeral until Longhorn is installed.
+        storageSpec: {}
+
+    alertmanager:
+      enabled: true
+
+      service:
+        type: ClusterIP
+
+      alertmanagerSpec:
+        replicas: 1
+
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 512Mi
+
+        # Intentionally ephemeral until Longhorn is installed.
+        storage: {}
+
+    kube-state-metrics:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+
+    prometheus-node-exporter:
+      hostNetwork: true
+      hostPID: true
+
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 192Mi

@@ -3,6 +3,8 @@
 ---
 
 firewall_kubernetes_zone: kubernetes
+firewall_external_zone: public
+firewall_kubernetes_egress_policy: kubernetes-egress
 
 # Networks permitted to reach Kubernetes node services.
 #
@@ -12,14 +14,22 @@ firewall_kubernetes_zone: kubernetes
 firewall_pod_network_cidrs:
   - 10.0.0.0/16
 
+# Permit forwarding for traffic associated with the Kubernetes zone.
+firewall_kubernetes_forward_enabled: true
+
+# Permit Pod-network traffic to leave through the node's external zone.
+firewall_kubernetes_egress_enabled: true
+
 firewall_control_plane_ports:
   - 6443/tcp
   - 2379-2380/tcp
+  - 9100/tcp
   - 10250/tcp
   - 10257/tcp
   - 10259/tcp
 
 firewall_worker_ports:
+  - 9100/tcp
   - 10250/tcp
   - 10256/tcp
 

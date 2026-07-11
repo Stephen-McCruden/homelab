@@ -7,4 +7,5 @@ kind: Kustomization
 resources:
   - cert-manager
   - kubelet-csr-approver
+  - kube-prometheus-stack
   - metrics-server
