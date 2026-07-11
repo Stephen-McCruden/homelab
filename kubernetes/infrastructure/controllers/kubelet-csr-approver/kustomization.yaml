@@ -1,0 +1,10 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/kubelet-csr-approver/kustomization.yaml
+# PURPOSE: Install the kubelet serving-certificate approver through Flux.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - helmrepository.yaml
+  - helmrelease.yaml

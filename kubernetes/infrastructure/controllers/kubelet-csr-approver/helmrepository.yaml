@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/kubelet-csr-approver/helmrepository.yaml
+# PURPOSE: Register the PostFinance kubelet CSR approver Helm repository.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: kubelet-csr-approver
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://postfinance.github.io/kubelet-csr-approver
