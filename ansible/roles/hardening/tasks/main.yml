@@ -1,56 +1,39 @@
 # FILE PATH: roles/hardening/tasks/main.yml
 ---
-- name: Remove systemd OSC 3008 profile integration
-  ansible.builtin.file:
-    path: /etc/profile.d/80-systemd-osc-context.sh
-    state: absent
-  when: disable_systemd_osc_context_for_ansible | default(true) | bool
-
-- name: Prevent systemd tmpfiles from recreating OSC 3008 profile integration
-  ansible.builtin.file:
-    src: /dev/null
-    dest: /etc/tmpfiles.d/20-systemd-osc-context.conf
-    state: link
-    force: true
-    owner: root
-    group: root
-  when: disable_systemd_osc_context_for_ansible | default(true) | bool
-
 - name: Read current SELinux mode
-  ansible.builtin.command:
-    argv: [getenforce]
+  ansible.builtin.command: getenforce
   register: selinux_mode
   changed_when: false
 
 - name: Set SELinux enforcing immediately
-  ansible.builtin.command:
-    argv: [setenforce, "1"]
-  when: selinux_mode.stdout | trim != 'Enforcing'
+  ansible.builtin.command: setenforce 1
+  when: selinux_mode.stdout != 'Enforcing'
   changed_when: true
 
 - name: Persist SELinux enforcing mode
-  ansible.builtin.replace:
+  ansible.builtin.lineinfile:
     path: /etc/selinux/config
-    regexp: '^SELINUX=.*$'
-    replace: 'SELINUX=enforcing'
+    regexp: '^SELINUX='
+    line: SELINUX=enforcing
 
 - name: Verify administrative authorized_keys exists before disabling passwords
   ansible.builtin.stat:
-    path: "/home/{{ ssh_admin_user }}/.ssh/authorized_keys"
-  register: admin_authorized_keys
+    path: "/home/{{ ansible_user }}/.ssh/authorized_keys"
+  register: administrative_authorized_keys
 
 - name: Assert administrative SSH key is present
   ansible.builtin.assert:
     that:
-      - admin_authorized_keys.stat.exists
-      - admin_authorized_keys.stat.size | int > 0
+      - administrative_authorized_keys.stat.exists
+      - administrative_authorized_keys.stat.size > 0
 
 - name: Install SSH hardening drop-in
   ansible.builtin.template:
     src: 20-ansible-hardening.conf.j2
-    dest: "{{ ssh_hardening_dropin }}"
+    dest: /etc/ssh/sshd_config.d/20-ansible-hardening.conf
     owner: root
     group: root
     mode: "0600"
     validate: /usr/sbin/sshd -t -f %s
   notify: Restart sshd
+  when: ssh_hardening_enabled | bool

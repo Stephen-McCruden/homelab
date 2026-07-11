@@ -16,39 +16,28 @@
     - firewalld.service
 
 - name: Check active swap
-  ansible.builtin.command:
-    argv: [swapon, --noheadings, --show]
+  ansible.builtin.command: swapon --noheadings --show
   register: verification_swap
   changed_when: false
   failed_when: verification_swap.stdout | trim | length > 0
-  check_mode: false
 
 - name: Check required sysctl values
-  ansible.builtin.command:
-    argv: [sysctl, -n, "{{ item.key }}"]
+  ansible.builtin.command: "sysctl -n {{ item.key }}"
+  loop: "{{ kubernetes_sysctl_values | dict2items }}"
   register: verification_sysctl
   changed_when: false
   failed_when: verification_sysctl.rc != 0 or verification_sysctl.stdout | trim != item.value | string
-  loop: "{{ kubernetes_sysctl_values | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}={{ item.value }}"
-  check_mode: false
 
 - name: Read active SELinux mode
-  ansible.builtin.command:
-    argv: [getenforce]
+  ansible.builtin.command: getenforce
   register: verification_selinux
   changed_when: false
-  failed_when: verification_selinux.rc != 0 or verification_selinux.stdout | trim != 'Enforcing'
-  check_mode: false
+  failed_when: verification_selinux.stdout | trim != 'Enforcing'
 
 - name: Read effective SSH configuration
-  ansible.builtin.command:
-    argv: [sshd, -T]
+  ansible.builtin.command: sshd -T
   register: verification_sshd
   changed_when: false
-  failed_when: verification_sshd.rc != 0
-  check_mode: false
 
 - name: Verify effective SSH hardening settings
   ansible.builtin.assert:
@@ -59,58 +48,28 @@
       - "'pubkeyauthentication yes' in verification_sshd.stdout"
 
 - name: Verify kubeadm is installed and executable
-  ansible.builtin.command:
-    argv: [kubeadm, version, -o, short]
+  ansible.builtin.command: kubeadm version -o short
   register: verification_kubeadm
   changed_when: false
 
 - name: Verify kubelet is installed and executable
-  ansible.builtin.command:
-    argv: [kubelet, --version]
+  ansible.builtin.command: kubelet --version
   register: verification_kubelet
   changed_when: false
 
 - name: Verify kubectl is installed and executable
-  ansible.builtin.command:
-    argv: [kubectl, version, --client=true, --output=yaml]
+  ansible.builtin.command: kubectl version --client=true --output=yaml
   register: verification_kubectl
   changed_when: false
 
 - name: Read effective containerd configuration
-  ansible.builtin.command:
-    argv: [containerd, config, dump]
-  register: verification_containerd_effective_config
+  ansible.builtin.command: containerd config dump
+  register: verification_containerd
   changed_when: false
-  check_mode: false
 
 - name: Verify containerd uses systemd cgroups
   ansible.builtin.assert:
-    that:
-      - verification_containerd_effective_config.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')
-    fail_msg: containerd effective configuration does not use systemd cgroups.
-
-- name: Check systemd OSC 3008 profile integration
-  ansible.builtin.stat:
-    path: /etc/profile.d/80-systemd-osc-context.sh
-    follow: false
-  register: verification_osc_profile
-  when: disable_systemd_osc_context_for_ansible | default(true) | bool
-
-- name: Check systemd OSC 3008 tmpfiles mask
-  ansible.builtin.stat:
-    path: /etc/tmpfiles.d/20-systemd-osc-context.conf
-    follow: false
-  register: verification_osc_mask
-  when: disable_systemd_osc_context_for_ansible | default(true) | bool
-
-- name: Verify systemd OSC 3008 integration is disabled for Ansible compatibility
-  ansible.builtin.assert:
-    that:
-      - not verification_osc_profile.stat.exists
-      - verification_osc_mask.stat.islnk | default(false)
-      - verification_osc_mask.stat.lnk_source | default('') == '/dev/null'
-    fail_msg: systemd OSC 3008 shell context integration is not fully disabled.
-  when: disable_systemd_osc_context_for_ansible | default(true) | bool
+    that: verification_containerd.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')
 
 - name: Report verified Kubernetes component versions
   ansible.builtin.debug:

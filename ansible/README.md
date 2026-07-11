@@ -1,16 +1,18 @@
 # Homelab Ansible v1
-
-Run the complete Fedora Kubernetes node baseline with:
+=======
+This directory prepares Fedora Kubernetes nodes created by Terraform. It installs prerequisites, configures containerd 2.x, installs Kubernetes tools, applies firewall and SSH hardening, and validates the resulting state.
 
 ```bash
 ansible-playbook playbooks/system-init.yml
 ```
 
-Run as the normal local user, not with `sudo`. The playbook uses privilege escalation only on managed nodes.
+Run the playbook as the normal controller user, never with `sudo`.
 
-## v1.0.0-rc2 compatibility cleanup
+## Design guarantees
 
-This release candidate includes two final transport-level cleanup changes:
-
-- SSH host-key reconciliation compares key algorithms and key material, so an unchanged Terraform node reports `ok` rather than `changed`.
-- Fedora systemd OSC 3008 shell-context integration is disabled and masked before fact gathering because it appends terminal control sequences after Ansible module JSON when privilege escalation is used.
+- No unconditional `dnf5 makecache --refresh` calls
+- GPG verification remains enabled
+- Package cache recovery happens only after transaction failure
+- Controller SSH host-key reconciliation supports Terraform rebuilds
+- Remote privilege escalation is scoped to the managed-node play
+- Second-run idempotency is a release requirement

@@ -3,6 +3,8 @@ PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
-MaxAuthTries 3
-LoginGraceTime 30
+MaxAuthTries {{ ssh_max_auth_tries }}
+LoginGraceTime {{ ssh_login_grace_time }}
 X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding yes

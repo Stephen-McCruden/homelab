@@ -1,6 +1,6 @@
 # FILE PATH: roles/kubernetes_node/defaults/main.yml
 ---
-kubernetes_packages:
+kubernetes_node_packages:
   - kubelet
   - kubeadm
   - kubectl

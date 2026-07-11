@@ -1,35 +1,15 @@
-# FILE MAP
+# File Map
 
-```text
-CHANGELOG.md
-FILE-MAP.md
-README.md
-VERSION
-ansible.cfg
-inventory/group_vars/all.yml
-inventory/hosts.yml
-playbooks/system-init.yml
-procedures/SYSTEM-INIT-PROCEDURE.md
-roles/container_runtime/defaults/main.yml
-roles/container_runtime/handlers/main.yml
-roles/container_runtime/tasks/main.yml
-roles/container_runtime/templates/config-v3.toml.j2
-roles/firewall/defaults/main.yml
-roles/firewall/tasks/main.yml
-roles/hardening/defaults/main.yml
-roles/hardening/handlers/main.yml
-roles/hardening/tasks/main.yml
-roles/hardening/templates/20-ansible-hardening.conf.j2
-roles/kubernetes_node/defaults/main.yml
-roles/kubernetes_node/tasks/main.yml
-roles/kubernetes_node/templates/kubernetes.repo.j2
-roles/package_manager/tasks/install.yml
-roles/package_manager/tasks/main.yml
-roles/prereqs/defaults/main.yml
-roles/prereqs/handlers/main.yml
-roles/prereqs/tasks/main.yml
-roles/prereqs/templates/kubernetes-modules.conf.j2
-roles/prereqs/templates/kubernetes-sysctl.conf.j2
-roles/verification/tasks/main.yml
-scripts/reconcile-known-host.sh
-```
+- `ansible.cfg` — controller configuration
+- `inventory/hosts.yml` — Kubernetes node inventory
+- `inventory/group_vars/all.yml` — shared connection and cluster variables
+- `playbooks/system-init.yml` — single entry-point playbook
+- `roles/package_manager/` — bounded package transaction and recovery logic
+- `roles/prereqs/` — kernel, sysctl, swap, and base packages
+- `roles/container_runtime/` — containerd 2.x
+- `roles/kubernetes_node/` — Kubernetes repository and packages
+- `roles/firewall/` — source-restricted firewalld zone
+- `roles/hardening/` — SELinux and SSH baseline
+- `roles/verification/` — end-state checks
+- `scripts/reconcile-known-host.sh` — Terraform replacement host-key reconciliation
+- `procedures/SYSTEM-INIT-PROCEDURE.md` — operating procedure

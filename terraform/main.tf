@@ -52,6 +52,7 @@ resource "proxmox_virtual_environment_vm" "k8s_nodes" {
 
   initialization {
     datastore_id = var.pve_vm_datastore
+    upgrade = false
 
     ip_config {
       ipv4 {

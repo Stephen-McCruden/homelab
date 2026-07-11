@@ -2,9 +2,8 @@
 ---
 ansible_user: stoof
 ansible_ssh_private_key_file: /home/stoof/.ssh/id_rsa
+ansible_python_interpreter: /usr/bin/python3
 
-reconcile_ephemeral_ssh_host_keys: true
-disable_systemd_osc_context_for_ansible: true
 cluster_network_cidr: 192.168.0.0/24
 management_network_cidrs:
   - 192.168.0.0/24
@@ -13,3 +12,4 @@ tailscale_management_cidrs: []
 kubernetes_minor_version: "1.36"
 firewall_allow_nodeport_range: false
 firewall_remove_ssh_from_public_zone: false
+ssh_hardening_enabled: true

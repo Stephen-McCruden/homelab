@@ -1,6 +1,75 @@
 # FILE PATH: roles/package_manager/tasks/main.yml
+# PURPOSE: Quiesce automatic Fedora package jobs before Ansible transactions.
 ---
-- name: Refresh DNF5 repository metadata
+- name: Verify DNF5 is available
   ansible.builtin.command:
-    argv: [dnf5, makecache, --refresh]
+    argv:
+      - dnf5
+      - --version
+  register: dnf5_version
   changed_when: false
+  check_mode: false
+
+- name: Stop and disable automatic DNF metadata timer
+  ansible.builtin.systemd_service:
+    name: dnf-makecache.timer
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Stop automatic DNF metadata service when active
+  ansible.builtin.systemd_service:
+    name: dnf-makecache.service
+    state: stopped
+  failed_when: false
+
+- name: Terminate stale automatic DNF makecache jobs
+  ansible.builtin.shell: |
+    set -o pipefail
+    mapfile -t pids < <(
+      pgrep -f '(^|/)(dnf|dnf5)([[:space:]]+[^[:space:]]+)*[[:space:]]+makecache([[:space:]]|$)' || true
+    )
+
+    changed=0
+    for pid in "${pids[@]}"; do
+      if [[ "$pid" != "$$" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill -TERM "$pid" 2>/dev/null || true
+        changed=1
+      fi
+    done
+
+    if (( changed )); then
+      sleep 3
+      for pid in "${pids[@]}"; do
+        if [[ "$pid" != "$$" ]] && kill -0 "$pid" 2>/dev/null; then
+          kill -KILL "$pid" 2>/dev/null || true
+        fi
+      done
+    fi
+
+    printf 'MAKECACHE_PROCESSES_TERMINATED=%s\n' "$changed"
+  args:
+    executable: /bin/bash
+  register: automatic_makecache_cleanup
+  changed_when: "'MAKECACHE_PROCESSES_TERMINATED=1' in automatic_makecache_cleanup.stdout"
+
+- name: Wait for RPM database transaction lock to clear
+  ansible.builtin.shell: |
+    set -o pipefail
+    deadline=$((SECONDS + 120))
+
+    while pgrep -x rpm >/dev/null 2>&1 || \
+          pgrep -x rpmdb >/dev/null 2>&1 || \
+          pgrep -x dnf >/dev/null 2>&1 || \
+          pgrep -x dnf5 >/dev/null 2>&1; do
+      if (( SECONDS >= deadline )); then
+        echo 'Timed out waiting for package-manager processes to exit.' >&2
+        ps -eo pid,ppid,stat,etime,cmd | grep -E '[d]nf5?|[r]pm' >&2 || true
+        exit 1
+      fi
+      sleep 2
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+  check_mode: false

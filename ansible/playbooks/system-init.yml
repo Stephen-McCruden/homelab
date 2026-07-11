@@ -1,6 +1,4 @@
 # FILE PATH: playbooks/system-init.yml
-# PURPOSE: Reconcile ephemeral SSH keys, prepare Ansible transport, configure,
-#          harden, and verify Fedora Kubernetes nodes.
 ---
 - name: Reconcile controller SSH host keys for ephemeral Terraform nodes
   hosts: localhost
@@ -8,8 +6,7 @@
   gather_facts: false
   become: false
   vars:
-    controller_home: "{{ lookup('env', 'HOME') }}"
-    controller_ssh_directory: "{{ controller_home }}/.ssh"
+    controller_ssh_directory: "{{ lookup('env', 'HOME') }}/.ssh"
     ssh_known_hosts_file: "{{ controller_ssh_directory }}/known_hosts"
     reconcile_script: "{{ playbook_dir }}/../scripts/reconcile-known-host.sh"
   tasks:
@@ -24,7 +21,7 @@
           - reconcile_script_status.stat.exists
           - reconcile_script_status.stat.isreg
           - reconcile_script_status.stat.executable
-        fail_msg: "SSH reconciliation script is missing or not executable: {{ reconcile_script }}"
+        fail_msg: "Missing or non-executable script: {{ reconcile_script }}"
 
     - name: Ensure controller SSH directory exists
       ansible.builtin.file:
@@ -37,8 +34,8 @@
         path: "{{ ssh_known_hosts_file }}"
         state: touch
         mode: "0600"
-        modification_time: preserve
         access_time: preserve
+        modification_time: preserve
 
     - name: Reconcile known_hosts entries with provisioned nodes
       ansible.builtin.command:
@@ -46,47 +43,11 @@
           - "{{ reconcile_script }}"
           - "{{ hostvars[item].ansible_host | default(item) }}"
           - "{{ ssh_known_hosts_file }}"
-      loop: "{{ groups['kubernetes_cluster'] | default([]) }}"
+      loop: "{{ groups['kubernetes_cluster'] }}"
       loop_control:
         label: "{{ item }} -> {{ hostvars[item].ansible_host | default(item) }}"
-      register: ssh_host_key_reconciliation
-      changed_when: "'UPDATED:' in ssh_host_key_reconciliation.stdout"
-      failed_when: ssh_host_key_reconciliation.rc != 0
-
-- name: Prepare clean Ansible transport on Fedora nodes
-  hosts: kubernetes_cluster
-  gather_facts: false
-  become: true
-  tasks:
-    - name: Disable systemd OSC 3008 shell context integration
-      ansible.builtin.raw: |
-        changed=0
-        profile_link=/etc/profile.d/80-systemd-osc-context.sh
-        tmpfiles_mask=/etc/tmpfiles.d/20-systemd-osc-context.conf
-
-        if [ -e "$profile_link" ] || [ -L "$profile_link" ]; then
-          rm -f "$profile_link"
-          changed=1
-        fi
-
-        mkdir -p /etc/tmpfiles.d
-        if [ "$(readlink "$tmpfiles_mask" 2>/dev/null || true)" != "/dev/null" ]; then
-          rm -f "$tmpfiles_mask"
-          ln -s /dev/null "$tmpfiles_mask"
-          changed=1
-        fi
-
-        if [ "$changed" -eq 1 ]; then
-          echo "OSC_CONTEXT_CHANGED"
-        else
-          echo "OSC_CONTEXT_UNCHANGED"
-        fi
-      register: osc_context_preflight
-      changed_when: "'OSC_CONTEXT_CHANGED' in osc_context_preflight.stdout"
-      when: disable_systemd_osc_context_for_ansible | default(true) | bool
-
-    - name: Reset SSH connection after disabling OSC integration
-      ansible.builtin.meta: reset_connection
+      register: ssh_reconcile
+      changed_when: "'UPDATED:' in ssh_reconcile.stdout"
 
 - name: Prepare and harden Fedora Kubernetes nodes
   hosts: kubernetes_cluster
@@ -95,9 +56,8 @@
   pre_tasks:
     - name: Validate Ansible controller version
       ansible.builtin.assert:
-        that:
-          - ansible_version.full is version('2.16', '>=')
-        fail_msg: Ansible-core 2.16 or newer is required.
+        that: ansible_version.full is version('2.16', '>=')
+        fail_msg: Ansible Core 2.16 or newer is required.
       run_once: true
       delegate_to: localhost
       become: false
@@ -106,31 +66,25 @@
       ansible.builtin.assert:
         that:
           - ansible_facts.distribution == 'Fedora'
-        fail_msg: "This baseline supports Fedora only. Detected {{ ansible_facts.distribution }}."
+        fail_msg: "Unsupported OS: {{ ansible_facts.distribution }}"
 
     - name: Validate required inventory groups
       ansible.builtin.assert:
         that:
-          - groups['control_plane'] | default([]) | length > 0
-          - groups['workers'] | default([]) | length > 0
-          - groups['kubernetes_cluster'] | default([]) | length > 0
-        fail_msg: Inventory must define control_plane, workers, and kubernetes_cluster groups.
+          - groups['control_plane'] | length > 0
+          - groups['workers'] | length > 0
       run_once: true
 
     - name: Validate required cluster variables
       ansible.builtin.assert:
         that:
           - cluster_network_cidr is defined
-          - management_network_cidrs is defined
+          - management_network_cidrs | length > 0
           - kubernetes_minor_version is defined
-        fail_msg: One or more required cluster variables are missing.
 
     - name: Validate remote passwordless sudo
       ansible.builtin.command:
-        argv:
-          - sudo
-          - --non-interactive
-          - "true"
+        argv: [sudo, --non-interactive, "true"]
       become: false
       changed_when: false
 

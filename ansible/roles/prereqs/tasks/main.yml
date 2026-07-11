@@ -16,8 +16,7 @@
     mode: "0644"
 
 - name: Read loaded kernel modules
-  ansible.builtin.command:
-    argv: [lsmod]
+  ansible.builtin.command: lsmod
   register: loaded_kernel_modules
   changed_when: false
   check_mode: false
@@ -39,8 +38,7 @@
   register: kubernetes_sysctl_configuration
 
 - name: Apply Kubernetes sysctl configuration when changed
-  ansible.builtin.command:
-    argv: [sysctl, --system]
+  ansible.builtin.command: sysctl --system
   when: kubernetes_sysctl_configuration.changed
   changed_when: true
 
@@ -75,14 +73,12 @@
     replace: '# Disabled by Ansible for Kubernetes: \1'
 
 - name: Read active swap
-  ansible.builtin.command:
-    argv: [swapon, --noheadings, --show]
+  ansible.builtin.command: swapon --noheadings --show
   register: active_swap
   changed_when: false
   check_mode: false
 
 - name: Disable active swap
-  ansible.builtin.command:
-    argv: [swapoff, --all]
+  ansible.builtin.command: swapoff --all
   when: active_swap.stdout | trim | length > 0
   changed_when: true

@@ -7,20 +7,14 @@
     owner: root
     group: root
     mode: "0644"
-  register: kubernetes_repository
 
-- name: Refresh DNF5 metadata after repository changes
-  ansible.builtin.command:
-    argv: [dnf5, makecache, --refresh]
-  when: kubernetes_repository.changed
-  changed_when: true
-
-- name: Install Kubernetes node packages through resilient package management
+- name: Install Kubernetes node packages through shared package management
   ansible.builtin.include_role:
     name: package_manager
     tasks_from: install
   vars:
-    package_manager_packages: "{{ kubernetes_packages }}"
+    package_manager_packages: "{{ kubernetes_node_packages }}"
+    package_manager_disable_excludes: kubernetes
 
 - name: Enable kubelet for later cluster bootstrap
   ansible.builtin.systemd_service:

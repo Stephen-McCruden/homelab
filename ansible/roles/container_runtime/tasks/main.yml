@@ -1,6 +1,6 @@
 # FILE PATH: roles/container_runtime/tasks/main.yml
 ---
-- name: Install containerd through resilient package management
+- name: Install containerd through shared package management
   ansible.builtin.include_role:
     name: package_manager
     tasks_from: install
@@ -16,17 +16,13 @@
     mode: "0755"
 
 - name: Read installed containerd version
-  ansible.builtin.command:
-    argv: [containerd, --version]
-  register: containerd_installed_version
+  ansible.builtin.command: containerd --version
+  register: containerd_version
   changed_when: false
-  check_mode: false
 
 - name: Verify containerd 2.x is installed
   ansible.builtin.assert:
-    that:
-      - containerd_installed_version.stdout is search('containerd.*v?2\\.')
-    fail_msg: "This role manages containerd 2.x. Detected: {{ containerd_installed_version.stdout }}"
+    that: containerd_version.stdout is search('containerd.*v?2\\.')
 
 - name: Install managed containerd 2.x configuration
   ansible.builtin.template:
@@ -45,16 +41,12 @@
     name: containerd
     enabled: true
     state: started
-    daemon_reload: true
 
 - name: Read effective containerd configuration
-  ansible.builtin.command:
-    argv: [containerd, config, dump]
+  ansible.builtin.command: containerd config dump
   register: containerd_effective_configuration
   changed_when: false
-  check_mode: false
 
 - name: Verify effective containerd systemd cgroup configuration
   ansible.builtin.assert:
-    that:
-      - containerd_effective_configuration.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')
+    that: containerd_effective_configuration.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')
