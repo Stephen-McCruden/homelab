@@ -1,11 +1,15 @@
 # FILE PATH: roles/firewall/tasks/main.yml
+# PURPOSE: Configure a source-restricted firewalld zone for Kubernetes
+#          node, management, and Pod-network traffic.
 ---
+
 - name: Install firewalld through shared package management
   ansible.builtin.include_role:
     name: package_manager
     tasks_from: install
   vars:
-    package_manager_packages: [firewalld]
+    package_manager_packages:
+      - firewalld
 
 - name: Enable and start firewalld
   ansible.builtin.systemd_service:
@@ -13,76 +17,199 @@
     enabled: true
     state: started
 
+- name: Validate firewall network variables
+  ansible.builtin.assert:
+    that:
+      - cluster_network_cidr | length > 0
+      - management_network_cidrs is iterable
+      - tailscale_management_cidrs is iterable
+      - firewall_pod_network_cidrs is iterable
+      - firewall_kubernetes_zone | length > 0
+    fail_msg: >-
+      One or more required firewall network variables are missing or invalid.
+
 - name: Read permanent firewalld zones
-  ansible.builtin.command: firewall-cmd --permanent --get-zones
-  register: firewalld_zones
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - --get-zones
+  register: firewall_available_zones
   changed_when: false
 
 - name: Create source-restricted Kubernetes zone
-  ansible.builtin.command: "firewall-cmd --permanent --new-zone={{ kubernetes_firewall_zone }}"
-  when: kubernetes_firewall_zone not in firewalld_zones.stdout.split()
-  register: zone_created
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--new-zone={{ firewall_kubernetes_zone }}"
+  register: firewall_zone_creation
   changed_when: true
+  when:
+    - >-
+      firewall_kubernetes_zone
+      not in firewall_available_zones.stdout.split()
 
 - name: Reload firewalld after zone creation
-  ansible.builtin.command: firewall-cmd --reload
-  when: zone_created.changed | default(false)
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --reload
   changed_when: true
+  when: firewall_zone_creation.changed | default(false)
 
-- name: Build allowed source list
+- name: Build allowed Kubernetes source list
   ansible.builtin.set_fact:
-    kubernetes_allowed_sources: "{{ (management_network_cidrs + tailscale_management_cidrs + [cluster_network_cidr]) | unique }}"
+    firewall_allowed_sources: >-
+      {{
+        (
+          management_network_cidrs
+          + tailscale_management_cidrs
+          + [cluster_network_cidr]
+          + firewall_pod_network_cidrs
+        )
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
 
-- name: Query configured zone sources
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --query-source={{ item }}"
-  loop: "{{ kubernetes_allowed_sources }}"
-  register: source_queries
+- name: Validate allowed Kubernetes source list
+  ansible.builtin.assert:
+    that:
+      - firewall_allowed_sources | length > 0
+    fail_msg: >-
+      No source networks were generated for the Kubernetes firewalld zone.
+
+- name: Query configured Kubernetes zone sources
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - "--query-source={{ item }}"
+  loop: "{{ firewall_allowed_sources }}"
+  register: firewall_source_queries
   changed_when: false
-  failed_when: source_queries.rc not in [0, 1]
+  failed_when: firewall_source_queries.rc not in [0, 1]
 
-- name: Add missing management and cluster sources
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --add-source={{ item.item }}"
-  loop: "{{ source_queries.results }}"
+- name: Add missing Kubernetes zone sources
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - "--add-source={{ item.item }}"
+  loop: "{{ firewall_source_queries.results }}"
   when: item.rc == 1
-  register: sources_added
+  register: firewall_sources_added
   changed_when: true
 
-- name: Query SSH service in restricted zone
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --query-service=ssh"
-  register: ssh_query
+- name: Query SSH service in Kubernetes zone
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - --query-service=ssh
+  register: firewall_ssh_query
   changed_when: false
-  failed_when: ssh_query.rc not in [0, 1]
+  failed_when: firewall_ssh_query.rc not in [0, 1]
 
-- name: Permit SSH in restricted zone
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --add-service=ssh"
-  when: ssh_query.rc == 1
-  register: ssh_added
+- name: Permit SSH in Kubernetes zone
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - --add-service=ssh
+  when: firewall_ssh_query.rc == 1
+  register: firewall_ssh_added
   changed_when: true
 
 - name: Build required Kubernetes port list for this host
   ansible.builtin.set_fact:
-    required_kubernetes_ports: >-
-      {{ (control_plane_ports if inventory_hostname in groups['control_plane'] else worker_ports)
-         + ([nodeport_range] if firewall_allow_nodeport_range | bool else []) }}
+    firewall_required_ports: >-
+      {{
+        (
+          firewall_control_plane_ports
+          if inventory_hostname in groups['control_plane']
+          else firewall_worker_ports
+        )
+        +
+        (
+          [firewall_nodeport_range]
+          if firewall_allow_nodeport_range | bool
+          else []
+        )
+      }}
 
 - name: Query required Kubernetes ports
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --query-port={{ item }}"
-  loop: "{{ required_kubernetes_ports }}"
-  register: port_queries
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - "--query-port={{ item }}"
+  loop: "{{ firewall_required_ports }}"
+  register: firewall_port_queries
   changed_when: false
-  failed_when: port_queries.rc not in [0, 1]
+  failed_when: firewall_port_queries.rc not in [0, 1]
 
 - name: Add missing Kubernetes ports
-  ansible.builtin.command: "firewall-cmd --permanent --zone={{ kubernetes_firewall_zone }} --add-port={{ item.item }}"
-  loop: "{{ port_queries.results }}"
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - "--add-port={{ item.item }}"
+  loop: "{{ firewall_port_queries.results }}"
   when: item.rc == 1
-  register: ports_added
+  register: firewall_ports_added
   changed_when: true
 
 - name: Reload firewalld when permanent configuration changed
-  ansible.builtin.command: firewall-cmd --reload
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --reload
   when: >-
-    (sources_added.changed | default(false)) or
-    (ssh_added.changed | default(false)) or
-    (ports_added.changed | default(false))
+    firewall_sources_added.changed | default(false)
+    or firewall_ssh_added.changed | default(false)
+    or firewall_ports_added.changed | default(false)
   changed_when: true
+
+- name: Read active Kubernetes zone sources
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - --list-sources
+  register: firewall_active_sources
+  changed_when: false
+
+- name: Verify every required source is active
+  ansible.builtin.assert:
+    that:
+      - item in firewall_active_sources.stdout.split()
+    fail_msg: >-
+      Required source {{ item }} is not active in firewalld zone
+      {{ firewall_kubernetes_zone }}.
+  loop: "{{ firewall_allowed_sources }}"
+
+- name: Query active kubelet port
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - --query-port=10250/tcp
+  register: firewall_kubelet_port_query
+  changed_when: false
+  failed_when: firewall_kubelet_port_query.rc not in [0, 1]
+
+- name: Verify kubelet port is active
+  ansible.builtin.assert:
+    that:
+      - firewall_kubelet_port_query.rc == 0
+    fail_msg: >-
+      Kubelet port 10250/tcp is not active in firewalld zone
+      {{ firewall_kubernetes_zone }}.

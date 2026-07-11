@@ -1,13 +1,26 @@
 # FILE PATH: roles/firewall/defaults/main.yml
+# PURPOSE: Default firewalld configuration for Kubernetes nodes.
 ---
-kubernetes_firewall_zone: kubernetes
-control_plane_ports:
+
+firewall_kubernetes_zone: kubernetes
+
+# Networks permitted to reach Kubernetes node services.
+#
+# The management and node-network CIDRs are supplied by inventory.
+# Cilium currently allocates Pod addresses from 10.0.x.x, so Pod-originated
+# traffic must also be associated with the restricted Kubernetes zone.
+firewall_pod_network_cidrs:
+  - 10.0.0.0/16
+
+firewall_control_plane_ports:
   - 6443/tcp
   - 2379-2380/tcp
   - 10250/tcp
   - 10257/tcp
   - 10259/tcp
-worker_ports:
+
+firewall_worker_ports:
   - 10250/tcp
   - 10256/tcp
-nodeport_range: 30000-32767/tcp
+
+firewall_nodeport_range: 30000-32767/tcp
