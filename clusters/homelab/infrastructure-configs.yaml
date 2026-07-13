@@ -1,6 +1,3 @@
-# FILE PATH: clusters/homelab/infrastructure-configs.yaml
-# PURPOSE: Reconcile shared configuration after infrastructure
-#          controllers become healthy.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -11,12 +8,18 @@ spec:
   dependsOn:
     - name: infrastructure-controllers
 
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+
   interval: 10m
   retryInterval: 1m
   timeout: 10m
   path: ./kubernetes/infrastructure/configs
   prune: true
   wait: true
+
   sourceRef:
     kind: GitRepository
     name: flux-system

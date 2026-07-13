@@ -1,0 +1,9 @@
+---
+# FILE PATH: .sops.yaml
+# PURPOSE: Configure SOPS encryption rules for the homelab repository.
+creation_rules:
+  - path_regex: kubernetes/infrastructure/configs/.*\.sops\.ya?ml$
+    age: "age1nsf8chjscmz3lsq22w66862g0adwf40yxp62yu4uf6e6vwh7jacqy6nzuf"
+
+  - path_regex: kubernetes/infrastructure/configs/.*\.sops\.json$
+    age: "age1nsf8chjscmz3lsq22w66862g0adwf40yxp62yu4uf6e6vwh7jacqy6nzuf"
