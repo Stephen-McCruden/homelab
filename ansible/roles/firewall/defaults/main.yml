@@ -21,6 +21,8 @@ firewall_kubernetes_forward_enabled: true
 firewall_kubernetes_egress_enabled: true
 
 firewall_control_plane_ports:
+  - 80/tcp
+  - 443/tcp
   - 6443/tcp
   - 2379-2380/tcp
   - 7946/tcp
@@ -31,6 +33,8 @@ firewall_control_plane_ports:
   - 10259/tcp
 
 firewall_worker_ports:
+  - 80/tcp
+  - 443/tcp
   - 7946/tcp
   - 7946/udp
   - 9100/tcp

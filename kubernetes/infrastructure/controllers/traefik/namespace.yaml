@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/traefik/namespace.yaml
+# PURPOSE: Provide a dedicated namespace for the ingress controller.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/part-of: homelab-platform

@@ -10,3 +10,4 @@ resources:
   - kube-prometheus-stack
   - metallb
   - metrics-server
+  - traefik

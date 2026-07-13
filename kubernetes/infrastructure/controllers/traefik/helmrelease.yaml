@@ -1,0 +1,132 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/traefik/helmrelease.yaml
+# PURPOSE: Deploy Traefik as the cluster ingress controller with a fixed
+#          MetalLB address and Prometheus monitoring.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  interval: 30m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: traefik
+      version: "41.0.2"
+      sourceRef:
+        kind: HelmRepository
+        name: traefik
+        namespace: flux-system
+      interval: 1h
+
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 5m
+    cleanupOnFail: true
+
+  values:
+    deployment:
+      replicas: 2
+
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+    ingressClass:
+      enabled: true
+      isDefaultClass: true
+      name: traefik
+
+    providers:
+      kubernetesCRD:
+        enabled: true
+        allowCrossNamespace: false
+        allowExternalNameServices: false
+
+      kubernetesIngress:
+        enabled: true
+        allowExternalNameServices: false
+        allowEmptyServices: true
+
+        publishedService:
+          enabled: true
+
+      kubernetesGateway:
+        enabled: false
+
+    api:
+      dashboard: false
+      insecure: false
+
+    ingressRoute:
+      dashboard:
+        enabled: false
+
+    service:
+      enabled: true
+      type: LoadBalancer
+
+      annotations:
+        metallb.io/address-pool: homelab-lan
+        metallb.io/loadBalancerIPs: 192.168.0.220
+
+      spec:
+        externalTrafficPolicy: Cluster
+
+    ports:
+      web:
+        expose:
+          default: true
+        exposedPort: 80
+        protocol: TCP
+
+      websecure:
+        expose:
+          default: true
+        exposedPort: 443
+        protocol: TCP
+
+        tls:
+          enabled: true
+
+    metrics:
+      prometheus:
+        addEntryPointsLabels: true
+        addRoutersLabels: true
+        addServicesLabels: true
+
+        service:
+          enabled: true
+
+        serviceMonitor:
+          enabled: true
+          interval: 30s
+
+    log:
+      level: INFO
+      format: json
+
+    accessLog:
+      enabled: true
+      format: json
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
