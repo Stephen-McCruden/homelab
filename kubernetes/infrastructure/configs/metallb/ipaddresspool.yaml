@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/metallb/ipaddresspool.yaml
+# PURPOSE: Reserve LAN addresses for Kubernetes LoadBalancer Services.
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: homelab-lan
+  namespace: metallb-system
+spec:
+  addresses:
+    - 192.168.0.220-192.168.0.229

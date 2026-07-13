@@ -1,0 +1,10 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/metallb/kustomization.yaml
+# PURPOSE: Configure MetalLB address allocation and Layer 2 advertisement.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ipaddresspool.yaml
+  - l2advertisement.yaml

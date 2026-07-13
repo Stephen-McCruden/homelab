@@ -8,4 +8,5 @@ resources:
   - cert-manager
   - kubelet-csr-approver
   - kube-prometheus-stack
+  - metallb
   - metrics-server

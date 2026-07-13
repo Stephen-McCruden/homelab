@@ -1,7 +1,8 @@
 # FILE PATH: kubernetes/infrastructure/configs/kustomization.yaml
-# PURPOSE: Entry point for shared platform configuration.
+# PURPOSE: Entry point for GitOps-managed platform configuration.
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources: []
+resources:
+  - metallb

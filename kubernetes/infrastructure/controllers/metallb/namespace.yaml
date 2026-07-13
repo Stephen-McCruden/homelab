@@ -1,0 +1,14 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/metallb/namespace.yaml
+# PURPOSE: Provide the privileged namespace required by MetalLB speakers.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  labels:
+    app.kubernetes.io/name: metallb
+    app.kubernetes.io/part-of: homelab-platform
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

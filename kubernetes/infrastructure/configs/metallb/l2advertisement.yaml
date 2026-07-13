@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/metallb/l2advertisement.yaml
+# PURPOSE: Advertise the homelab LoadBalancer pool through ARP.
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: homelab-lan
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - homelab-lan
