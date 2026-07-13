@@ -1,0 +1,25 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/cert-manager/certificate-wildcard.yaml
+# PURPOSE: Issue the production wildcard TLS certificate for mccruden.com.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-mccruden-com
+  namespace: traefik
+spec:
+  secretName: wildcard-mccruden-com-tls
+
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: letsencrypt-production
+
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+
+  dnsNames:
+    - mccruden.com
+    - "*.mccruden.com"

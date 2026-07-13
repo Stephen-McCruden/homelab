@@ -8,4 +8,4 @@ kind: Kustomization
 resources:
   - clusterissuer-staging.yaml
   - clusterissuer-production.yaml
-  - certificate-test.yaml
+  - certificate-wildcard.yaml
