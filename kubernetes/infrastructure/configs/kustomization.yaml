@@ -6,3 +6,4 @@ kind: Kustomization
 
 resources:
   - metallb
+  - external-secrets
