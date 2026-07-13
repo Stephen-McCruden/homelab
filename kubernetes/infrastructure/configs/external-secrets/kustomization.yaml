@@ -8,3 +8,4 @@ kind: Kustomization
 resources:
   - azure-credentials.sops.yaml
   - clustersecretstore.yaml
+  - cloudflare-api-token.yaml
