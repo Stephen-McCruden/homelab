@@ -1,0 +1,92 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/external-secrets/helmrelease.yaml
+# PURPOSE: Deploy and reconcile External Secrets Operator.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  interval: 30m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: external-secrets
+      version: "2.2.0"
+
+      sourceRef:
+        kind: HelmRepository
+        name: external-secrets
+        namespace: flux-system
+
+      interval: 1h
+
+  install:
+    crds: CreateReplace
+
+    remediation:
+      retries: 3
+
+  upgrade:
+    crds: CreateReplace
+
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 5m
+    cleanupOnFail: true
+
+  values:
+    installCRDs: true
+
+    replicaCount: 2
+
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: 300m
+        memory: 256Mi
+
+    webhook:
+      replicaCount: 2
+
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 192Mi
+
+    certController:
+      replicaCount: 2
+
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 192Mi

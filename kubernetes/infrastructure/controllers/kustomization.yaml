@@ -6,6 +6,7 @@ kind: Kustomization
 
 resources:
   - cert-manager
+  - external-secrets
   - kubelet-csr-approver
   - kube-prometheus-stack
   - metallb

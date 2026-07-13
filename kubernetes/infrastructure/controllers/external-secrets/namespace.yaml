@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/external-secrets/namespace.yaml
+# PURPOSE: Create the namespace for External Secrets Operator.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+  labels:
+    app.kubernetes.io/name: external-secrets
+    app.kubernetes.io/part-of: homelab-platform

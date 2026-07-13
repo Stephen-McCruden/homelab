@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/external-secrets/kustomization.yaml
+# PURPOSE: Install External Secrets Operator using Flux and Helm.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - helmrepository.yaml
+  - helmrelease.yaml
