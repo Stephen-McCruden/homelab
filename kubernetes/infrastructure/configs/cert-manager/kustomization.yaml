@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/cert-manager/kustomization.yaml
+# PURPOSE: Configure cert-manager ACME issuers and validation resources.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - clusterissuer-staging.yaml
+  - clusterissuer-production.yaml
+  - certificate-test.yaml
