@@ -8,6 +8,7 @@ kind: HelmRelease
 metadata:
   name: traefik
   namespace: traefik
+
 spec:
   interval: 30m
   timeout: 10m
@@ -16,19 +17,23 @@ spec:
     spec:
       chart: traefik
       version: "41.0.2"
+
       sourceRef:
         kind: HelmRepository
         name: traefik
         namespace: flux-system
+
       interval: 1h
 
   install:
     crds: CreateReplace
+
     remediation:
       retries: 3
 
   upgrade:
     crds: CreateReplace
+
     remediation:
       retries: 3
       remediateLastFailure: true
@@ -39,6 +44,7 @@ spec:
 
   values:
     deployment:
+      kind: Deployment
       replicas: 2
 
     podDisruptionBudget:
@@ -55,6 +61,7 @@ spec:
         enabled: true
         allowCrossNamespace: false
         allowExternalNameServices: false
+        allowEmptyServices: true
 
       kubernetesIngress:
         enabled: true
@@ -67,6 +74,12 @@ spec:
       kubernetesGateway:
         enabled: false
 
+    gateway:
+      enabled: false
+
+    gatewayClass:
+      enabled: false
+
     api:
       dashboard: false
       insecure: false
@@ -77,33 +90,47 @@ spec:
 
     service:
       enabled: true
-      type: LoadBalancer
 
       annotations:
         metallb.io/address-pool: homelab-lan
-        metallb.io/loadBalancerIPs: 192.168.0.220
 
       spec:
+        type: LoadBalancer
+        loadBalancerIP: 192.168.0.220
         externalTrafficPolicy: Cluster
 
     ports:
       web:
+        port: 8000
+
         expose:
           default: true
+
         exposedPort: 80
         protocol: TCP
 
       websecure:
+        port: 8443
+
         expose:
           default: true
+
         exposedPort: 443
         protocol: TCP
 
-        tls:
-          enabled: true
+      metrics:
+        port: 9100
+
+        expose:
+          default: false
+
+        exposedPort: 9100
+        protocol: TCP
 
     metrics:
       prometheus:
+        entryPoint: metrics
+
         addEntryPointsLabels: true
         addRoutersLabels: true
         addServicesLabels: true
@@ -114,6 +141,7 @@ spec:
         serviceMonitor:
           enabled: true
           interval: 30s
+          namespace: monitoring
 
     log:
       level: INFO
@@ -123,10 +151,17 @@ spec:
       enabled: true
       format: json
 
+      fields:
+        defaultMode: keep
+
+        headers:
+          defaultMode: drop
+
     resources:
       requests:
         cpu: 100m
         memory: 128Mi
+
       limits:
         cpu: 500m
         memory: 512Mi
