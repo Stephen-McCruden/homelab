@@ -1,0 +1,9 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/traefik/kustomization.yaml
+# PURPOSE: Configure shared Traefik TLS behavior.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - tlsstore.yaml

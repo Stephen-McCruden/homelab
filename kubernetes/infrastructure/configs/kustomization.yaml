@@ -8,3 +8,4 @@ resources:
   - cert-manager
   - metallb
   - external-secrets
+  - traefik

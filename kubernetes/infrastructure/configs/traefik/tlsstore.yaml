@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/traefik/tlsstore.yaml
+# PURPOSE: Configure the production wildcard certificate as Traefik's default.
+---
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: traefik
+spec:
+  defaultCertificate:
+    secretName: wildcard-mccruden-com-tls
