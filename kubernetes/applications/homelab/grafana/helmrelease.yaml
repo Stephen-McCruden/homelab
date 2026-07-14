@@ -1,0 +1,102 @@
+# FILE PATH:
+# kubernetes/applications/homelab/grafana/helmrelease.yaml
+# PURPOSE: Deploy Grafana with Azure-managed credentials and Traefik HTTPS.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 30m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: grafana
+      version: "1.13.0"
+
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community
+        namespace: flux-system
+
+      interval: 1h
+
+  install:
+    remediation:
+      retries: 3
+
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 5m
+    cleanupOnFail: true
+
+  values:
+    admin:
+      existingSecret: grafana-admin-credentials
+      userKey: admin-user
+      passwordKey: admin-password
+
+    replicas: 1
+
+    service:
+      type: ClusterIP
+
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+        traefik.ingress.kubernetes.io/router.tls: "true"
+
+      hosts:
+        - grafana.mccruden.com
+
+      path: /
+      pathType: Prefix
+
+    grafana.ini:
+      server:
+        domain: grafana.mccruden.com
+        root_url: "https://grafana.mccruden.com"
+
+      security:
+        disable_initial_admin_creation: false
+        password_policy: true
+
+      users:
+        allow_sign_up: false
+
+      auth.anonymous:
+        enabled: false
+
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            uid: prometheus
+            access: proxy
+            url: >-
+              http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+            isDefault: true
+            editable: false
+
+    persistence:
+      enabled: false
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

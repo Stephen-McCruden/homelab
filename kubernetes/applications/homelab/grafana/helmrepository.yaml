@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/applications/homelab/grafana/helmrepository.yaml
+# PURPOSE: Register the Grafana Community Helm repository.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana-community
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://grafana-community.github.io/helm-charts

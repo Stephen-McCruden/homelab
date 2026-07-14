@@ -1,0 +1,10 @@
+# FILE PATH:
+# kubernetes/applications/homelab/grafana/kustomization.yaml
+# PURPOSE: Deploy standalone Grafana through Flux.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - helmrepository.yaml
+  - helmrelease.yaml
