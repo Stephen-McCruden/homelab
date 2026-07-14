@@ -40,45 +40,55 @@ spec:
   values:
     fullnameOverride: kube-prometheus-stack
 
-    # Grafana is intentionally deployed as a separate platform component.
     grafana:
-      enabled: false
-
-    # These kubeadm static components expose metrics only on localhost by
-    # default. Disable their monitors until their bind addresses and
-    # authentication are explicitly configured.
-    kubeControllerManager:
-      enabled: false
-
-    kubeEtcd:
-      enabled: false
-
-    kubeProxy:
-      enabled: false
-
-    kubeScheduler:
-      enabled: false
-
-    defaultRules:
-      create: true
-
-      rules:
-        etcd: false
-        kubeControllerManager: false
-        kubeProxy: false
-        kubeSchedulerAlerting: false
-        kubeSchedulerRecording: false
-
-    prometheusOperator:
       enabled: true
 
-      admissionWebhooks:
+      admin:
+        existingSecret: grafana-admin-credentials
+        userKey: admin-user
+        passwordKey: admin-password
+
+      replicas: 1
+
+      service:
+        type: ClusterIP
+
+      ingress:
         enabled: true
+        ingressClassName: traefik
+
+        annotations:
+          traefik.ingress.kubernetes.io/router.entrypoints: websecure
+          traefik.ingress.kubernetes.io/router.tls: "true"
+
+        hosts:
+          - grafana.mccruden.com
+
+        path: /
+        pathType: Prefix
+
+      grafana.ini:
+        server:
+          domain: grafana.mccruden.com
+          root_url: "https://grafana.mccruden.com"
+
+        security:
+          disable_initial_admin_creation: false
+          password_policy: true
+
+        users:
+          allow_sign_up: false
+
+        auth.anonymous:
+          enabled: false
+
+      persistence:
+        enabled: false
 
       resources:
         requests:
           cpu: 100m
-          memory: 128Mi
+          memory: 256Mi
         limits:
           cpu: 500m
           memory: 512Mi
@@ -106,9 +116,9 @@ spec:
             cpu: "1"
             memory: 2Gi
 
-        # Allow future ServiceMonitors, PodMonitors, PrometheusRules,
-        # and Probes from every namespace without requiring Helm
-        # release-specific labels.
+        # Allow ServiceMonitors, PodMonitors, PrometheusRules,
+        # and Probes from every namespace without requiring
+        # Helm release-specific labels.
         serviceMonitorSelectorNilUsesHelmValues: false
         serviceMonitorSelector: {}
         serviceMonitorNamespaceSelector: {}
