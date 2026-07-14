@@ -18,7 +18,7 @@ spec:
 
       sourceRef:
         kind: HelmRepository
-        name: grafana-community
+        name: grafana
         namespace: flux-system
 
       interval: 1h
