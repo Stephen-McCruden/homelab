@@ -40,58 +40,10 @@ spec:
   values:
     fullnameOverride: kube-prometheus-stack
 
+    # Grafana is deployed later as a standalone application so that its
+    # Azure-backed administrator Secret exists before Helm installs it.
     grafana:
-      enabled: true
-
-      admin:
-        existingSecret: grafana-admin-credentials
-        userKey: admin-user
-        passwordKey: admin-password
-
-      replicas: 1
-
-      service:
-        type: ClusterIP
-
-      ingress:
-        enabled: true
-        ingressClassName: traefik
-
-        annotations:
-          traefik.ingress.kubernetes.io/router.entrypoints: websecure
-          traefik.ingress.kubernetes.io/router.tls: "true"
-
-        hosts:
-          - grafana.mccruden.com
-
-        path: /
-        pathType: Prefix
-
-      grafana.ini:
-        server:
-          domain: grafana.mccruden.com
-          root_url: "https://grafana.mccruden.com"
-
-        security:
-          disable_initial_admin_creation: false
-          password_policy: true
-
-        users:
-          allow_sign_up: false
-
-        auth.anonymous:
-          enabled: false
-
-      persistence:
-        enabled: false
-
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
+      enabled: false
 
     prometheus:
       enabled: true
