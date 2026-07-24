@@ -1,6 +1,6 @@
 # Homelab Ansible
 
-This directory contains the three current deployment stages used after Terraform provisions Fedora VMs.
+This directory contains the three deployment stages used after Terraform provisions the Fedora virtual machines.
 
 ```bash
 ansible-playbook playbooks/system-init.yml
@@ -8,21 +8,93 @@ ansible-playbook playbooks/cluster-bootstrap.yml
 ansible-playbook playbooks/platform-bootstrap.yml
 ```
 
-Run Ansible as the normal controller user. Remote privilege escalation is handled by the playbooks.
+Run Ansible as the normal controller user. The playbooks handle remote privilege escalation.
+
+## YubiKey and Standard SSH
+
+### YubiKey-backed SSH
+
+From `ansible/`:
+
+```bash
+../scripts/ansible-yubikey playbooks/system-init.yml
+../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
+../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
+```
+
+The wrapper defaults to:
+
+```text
+~/.ssh/id_ed25519_sk
+```
+
+Override it with:
+
+```bash
+export ANSIBLE_YUBIKEY_PATH="$HOME/.ssh/another-key"
+```
+
+### Standard file-based SSH key
+
+Reference the private key in inventory or group variables, then run normal `ansible-playbook` commands.
+
+See [Controller authentication](../docs/CONTROLLER-AUTHENTICATION.md).
 
 ## Stage Responsibilities
 
 ### `system-init.yml`
 
-Reconciles SSH host keys, validates Fedora/inventory/sudo, protects DNF5 transactions, installs Kubernetes tooling and containerd, configures kernel prerequisites, firewalld, SSH hardening, SELinux compatibility mode, and end-state verification.
+- Reconcile replaced VM SSH host keys.
+- Validate inventory, Fedora, and sudo.
+- Control DNF5 transaction races.
+- Install prerequisites, containerd, and Kubernetes packages.
+- Configure kernel modules, sysctls, swap, zram, firewall, SSH hardening, and SELinux compatibility mode.
+- Verify the resulting node state.
 
 ### `cluster-bootstrap.yml`
 
-Renders kubeadm configuration, initializes only when required, detects and joins only missing workers, generates temporary credentials only when needed, installs Cilium only when absent, and validates the API, nodes, CoreDNS, Cilium, and system Pods.
+- Render kubeadm configuration.
+- Initialize the control plane only when required.
+- Join only missing workers.
+- Generate temporary join credentials only when needed.
+- Install Cilium only when absent.
+- Validate the API, nodes, CoreDNS, Cilium, and system Pods.
 
 ### `platform-bootstrap.yml`
 
-Installs a pinned Flux CLI, performs GitHub bootstrap only when required, validates SSH deploy-key authentication, checks the Git branch, waits for controller rollouts, and verifies every managed Kustomization.
+- Validate the Kubernetes API and administrative kubeconfig.
+- Install and checksum-verify the pinned Flux CLI.
+- Verify the controller-side SOPS age private key.
+- Create the `flux-system` namespace if required.
+- Create or update `flux-system/sops-age` before encrypted reconciliation.
+- Bootstrap Flux against GitHub only when Flux is absent.
+- Validate the generated SSH deploy-key Secret.
+- Wait for Flux controllers, Git source, and every managed Kustomization.
+
+## First Platform Bootstrap Environment
+
+The GitHub token is required only for a new Flux bootstrap.
+
+```bash
+read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+printf '\n'
+export GITHUB_TOKEN
+```
+
+Optional SOPS key override:
+
+```bash
+export SOPS_AGE_KEY_FILE="/secure/path/keys.txt"
+```
+
+After the bootstrap:
+
+```bash
+unset GITHUB_TOKEN
+unset SOPS_AGE_KEY_FILE
+```
+
+Do not save a real GitHub token in the tracked `platform-bootstrap.env.example` file.
 
 ## Procedures
 
@@ -30,12 +102,6 @@ Installs a pinned Flux CLI, performs GitHub bootstrap only when required, valida
 - [Cluster bootstrap](procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md)
 - [Platform bootstrap](procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md)
 - [Full rebuild](procedures/FULL-REBUILD-PROCEDURE.md)
-
-## Templates
-
-- `inventory/hosts.yml.example`
-- `inventory/group_vars/all.yml.example`
-- `platform-bootstrap.env.example`
 
 ## Validation
 
@@ -56,20 +122,20 @@ yamllint .
 
 ## Runtime Idempotency
 
-```bash
-ansible-playbook playbooks/system-init.yml
-ansible-playbook playbooks/cluster-bootstrap.yml
-ansible-playbook playbooks/platform-bootstrap.yml
-```
+Run each playbook a second time after a successful deployment.
 
-A healthy existing deployment should report:
+A healthy run should report:
 
 ```text
-changed=0
 failed=0
+unreachable=0
 ```
 
+Most state-enforcement tasks should report `ok`. Review any unexpected changes rather than treating every nonzero changed count as acceptable.
+
 ## Kubeconfig
+
+Local administrative kubeconfig:
 
 ```text
 ~/.kube/homelab-admin.conf
@@ -79,18 +145,15 @@ failed=0
 export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
 ```
 
-This file grants administrative access and must not be committed.
+Protect it with mode `0600` and do not commit it.
 
 ## Security Decisions
 
-- GPG verification remains enabled.
+- Package GPG verification remains enabled.
 - SSH password authentication is disabled only after key verification.
 - Firewall access is source restricted.
-- Join credentials are temporary.
-- The GitHub PAT is never stored in Git.
-- Flux uses a generated SSH deploy key after bootstrap.
+- kubeadm join credentials are temporary.
+- The GitHub PAT is used only for initial Flux bootstrap.
+- Flux uses a generated read-only SSH deploy key after bootstrap.
+- The SOPS age private key remains outside Git and is copied to the control-plane node only temporarily.
 - SELinux permissive mode is a documented Fedora compatibility workaround.
-
-## Planned Fourth Stage
-
-`backup-bootstrap.yml` will provide external backup credentials and controlled restore/verification operations. Backup schedules and most backup resources will remain GitOps-managed.

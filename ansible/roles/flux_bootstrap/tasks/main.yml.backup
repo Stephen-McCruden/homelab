@@ -1,25 +1,18 @@
 # FILE PATH: roles/flux_bootstrap/tasks/main.yml
-# PURPOSE: Install a pinned Flux CLI, provision the SOPS bootstrap Secret,
-#          bootstrap Flux against GitHub when required, and verify the
-#          complete GitOps reconciliation chain.
+# PURPOSE: Install a pinned Flux CLI, bootstrap Flux against GitHub when
+#          required, and verify the complete GitOps reconciliation chain.
 ---
 
 - name: Validate Flux bootstrap variables
   ansible.builtin.assert:
     that:
-      - >-
-        flux_bootstrap_version
-        is match('^v[0-9]+\.[0-9]+\.[0-9]+$')
+      - flux_bootstrap_version is match('^v[0-9]+\.[0-9]+\.[0-9]+$')
       - flux_bootstrap_architecture in ['amd64', 'arm64']
       - flux_bootstrap_github_owner | length > 0
       - flux_bootstrap_github_repository | length > 0
       - flux_bootstrap_github_branch | length > 0
       - flux_bootstrap_github_path | length > 0
       - flux_bootstrap_kubeconfig_path | length > 0
-      - flux_bootstrap_namespace | length > 0
-      - flux_bootstrap_sops_age_secret_name | length > 0
-      - flux_bootstrap_sops_age_secret_key | length > 0
-      - flux_bootstrap_sops_age_key_file | length > 0
       - flux_bootstrap_controller_deployments | length > 0
       - flux_bootstrap_managed_kustomizations | length > 0
     fail_msg: >-
@@ -68,8 +61,7 @@
   ansible.builtin.get_url:
     url: "{{ flux_bootstrap_archive_url }}"
     dest: >-
-      {{ flux_bootstrap_download_directory }}/{{
-      flux_bootstrap_archive_name }}
+      {{ flux_bootstrap_download_directory }}/{{ flux_bootstrap_archive_name }}
     owner: root
     group: root
     mode: "0644"
@@ -79,8 +71,7 @@
   ansible.builtin.get_url:
     url: "{{ flux_bootstrap_checksums_url }}"
     dest: >-
-      {{ flux_bootstrap_download_directory }}/{{
-      flux_bootstrap_checksums_name }}
+      {{ flux_bootstrap_download_directory }}/{{ flux_bootstrap_checksums_name }}
     owner: root
     group: root
     mode: "0644"
@@ -101,8 +92,7 @@
 - name: Extract Flux CLI
   ansible.builtin.unarchive:
     src: >-
-      {{ flux_bootstrap_download_directory }}/{{
-      flux_bootstrap_archive_name }}
+      {{ flux_bootstrap_download_directory }}/{{ flux_bootstrap_archive_name }}
     dest: /usr/local/bin
     remote_src: true
     owner: root
@@ -140,159 +130,6 @@
       - "{{ flux_bootstrap_kubeconfig_path }}"
   register: flux_bootstrap_precheck
   changed_when: false
-
-- name: Check SOPS age private key on Ansible controller
-  ansible.builtin.stat:
-    path: "{{ flux_bootstrap_sops_age_key_file }}"
-  delegate_to: localhost
-  become: false
-  register: flux_bootstrap_sops_age_key_file_status
-
-- name: Verify SOPS age private key exists
-  ansible.builtin.assert:
-    that:
-      - >-
-        flux_bootstrap_sops_age_key_file_status.stat.exists
-        | default(false)
-      - >-
-        flux_bootstrap_sops_age_key_file_status.stat.isreg
-        | default(false)
-      - >-
-        flux_bootstrap_sops_age_key_file_status.stat.size
-        | default(0)
-        | int > 0
-    fail_msg: >-
-      The SOPS age private key was not found on the Ansible controller.
-      Expected file: {{ flux_bootstrap_sops_age_key_file }}.
-      Set SOPS_AGE_KEY_FILE to override the default path.
-
-- name: Generate Flux namespace manifest
-  ansible.builtin.command:
-    argv:
-      - kubectl
-      - --kubeconfig
-      - "{{ flux_bootstrap_kubeconfig_path }}"
-      - create
-      - namespace
-      - "{{ flux_bootstrap_namespace }}"
-      - --dry-run=client
-      - --output=yaml
-  register: flux_bootstrap_namespace_manifest
-  changed_when: false
-
-- name: Apply Flux namespace
-  ansible.builtin.command:
-    argv:
-      - kubectl
-      - --kubeconfig
-      - "{{ flux_bootstrap_kubeconfig_path }}"
-      - apply
-      - --filename=-
-    stdin: "{{ flux_bootstrap_namespace_manifest.stdout }}"
-  register: flux_bootstrap_namespace_apply
-  changed_when: >-
-    'created' in flux_bootstrap_namespace_apply.stdout
-    or
-    'configured' in flux_bootstrap_namespace_apply.stdout
-
-- name: Create temporary SOPS age key file on control plane
-  ansible.builtin.tempfile:
-    state: file
-    prefix: flux-sops-age-
-  register: flux_bootstrap_temporary_sops_age_key
-  no_log: true
-
-- name: Provision Flux SOPS age Secret
-  block:
-    - name: Copy SOPS age key temporarily to control plane
-      ansible.builtin.copy:
-        src: "{{ flux_bootstrap_sops_age_key_file }}"
-        dest: "{{ flux_bootstrap_temporary_sops_age_key.path }}"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-
-    - name: Generate Flux SOPS age Secret manifest
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - --kubeconfig
-          - "{{ flux_bootstrap_kubeconfig_path }}"
-          - --namespace
-          - "{{ flux_bootstrap_namespace }}"
-          - create
-          - secret
-          - generic
-          - "{{ flux_bootstrap_sops_age_secret_name }}"
-          - >-
-            --from-file={{ flux_bootstrap_sops_age_secret_key }}={{
-            flux_bootstrap_temporary_sops_age_key.path }}
-          - --dry-run=client
-          - --output=yaml
-      register: flux_bootstrap_sops_age_secret_manifest
-      changed_when: false
-      no_log: true
-
-    - name: Apply Flux SOPS age Secret
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - --kubeconfig
-          - "{{ flux_bootstrap_kubeconfig_path }}"
-          - apply
-          - --filename=-
-        stdin: "{{ flux_bootstrap_sops_age_secret_manifest.stdout }}"
-      register: flux_bootstrap_sops_age_secret_apply
-      changed_when: >-
-        'created' in flux_bootstrap_sops_age_secret_apply.stdout
-        or
-        'configured' in flux_bootstrap_sops_age_secret_apply.stdout
-      no_log: true
-
-  always:
-    - name: Remove temporary SOPS age key file from control plane
-      ansible.builtin.file:
-        path: "{{ flux_bootstrap_temporary_sops_age_key.path }}"
-        state: absent
-      no_log: true
-
-- name: Read Flux SOPS age Secret
-  ansible.builtin.command:
-    argv:
-      - kubectl
-      - --kubeconfig
-      - "{{ flux_bootstrap_kubeconfig_path }}"
-      - --namespace
-      - "{{ flux_bootstrap_namespace }}"
-      - get
-      - secret
-      - "{{ flux_bootstrap_sops_age_secret_name }}"
-      - --output=json
-  register: flux_bootstrap_sops_age_secret_json
-  changed_when: false
-  no_log: true
-
-- name: Verify Flux SOPS age Secret key material exists
-  ansible.builtin.assert:
-    that:
-      - >-
-        flux_bootstrap_sops_age_secret_key
-        in
-        (
-          flux_bootstrap_sops_age_secret_json.stdout
-          | from_json
-        ).data
-      - >-
-        (
-          flux_bootstrap_sops_age_secret_json.stdout
-          | from_json
-        ).data[flux_bootstrap_sops_age_secret_key]
-        | length > 0
-    fail_msg: >-
-      Flux SOPS Secret {{ flux_bootstrap_sops_age_secret_name }} does not
-      contain key {{ flux_bootstrap_sops_age_secret_key }}.
-  no_log: true
 
 - name: Check for Flux GitRepository
   ansible.builtin.command:
@@ -547,9 +384,7 @@
       - item.stdout | trim == 'True'
     fail_msg: >-
       Flux Kustomization {{ item.item }} is not Ready.
-      Ready condition was {{
-        item.stdout | trim | default('missing', true)
-      }}.
+      Ready condition was {{ item.stdout | trim | default('missing', true) }}.
   loop: "{{ flux_bootstrap_kustomization_conditions.results }}"
 
 - name: Verify complete Flux installation

@@ -1,5 +1,6 @@
 # Copy to terraform.tfvars and replace every placeholder.
-# Never place private SSH keys in this file.
+# terraform.tfvars contains credentials and must remain ignored by Git.
+# Never place a private SSH key in this file.
 
 proxmox_api_url          = "https://PROXMOX-MANAGEMENT-IP:8006/api2/json"
 proxmox_api_token_id     = "terraform-user@pve!homelab"
@@ -9,14 +10,17 @@ proxmox_insecure         = true
 pve_iso_datastore = "local"
 pve_vm_datastore  = "local-lvm"
 
+# Verify the current Fedora Cloud image URL before a new deployment.
 os_image_url      = "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2"
 os_image_filename = "fedora-cloud-base.qcow2"
 
 vm_disk_size = 30
 ssh_username = "YOUR_ADMIN_USERNAME"
 
+# Use the public key that matches the controller's private key.
+# A normal OpenSSH key and a FIDO2/YubiKey-backed *.pub key both work.
 ssh_public_keys = [
-  "ssh-ed25519 REPLACE_WITH_CONTROLLER_PUBLIC_KEY controller",
+  "REPLACE_WITH_COMPLETE_OPENSSH_PUBLIC_KEY_LINE",
 ]
 
 network_gateway = "192.168.0.1"

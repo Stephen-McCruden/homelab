@@ -1,36 +1,35 @@
 # Homelab Infrastructure Platform
 
-This repository contains the Infrastructure as Code, configuration management, Kubernetes bootstrap, GitOps, and operational documentation used to build and operate a three-node Proxmox-based Kubernetes home lab.
+This repository builds and operates a three-node Proxmox-based Kubernetes home lab with Terraform, Ansible, kubeadm, Cilium, Flux, SOPS, and GitOps-managed platform services.
 
-The central design goal is **reproducibility**: the virtual infrastructure, operating-system baseline, Kubernetes cluster, and GitOps control plane should be provisioned, validated, destroyed, and rebuilt from code without relying on undocumented manual configuration.
+The main goal is reproducibility. A replacement cluster should be built from code without relying on undocumented manual commands.
 
-> **Current status:** Terraform provisions the Fedora Cloud virtual machines; Ansible converges and validates the node baseline; kubeadm initializes the control plane and joins both workers; Cilium provides cluster networking; and Flux continuously reconciles the repository. All three Ansible stages have demonstrated second-run idempotency with `changed=0`.
+## Current State
 
-## Scope
+The following stages are operational:
 
-This repository automates the layers above an already functioning infrastructure foundation.
+- Terraform provisions three Fedora Cloud virtual machines on Proxmox.
+- Ansible configures the Fedora node baseline, containerd, Kubernetes packages, firewall rules, SSH hardening, and cluster prerequisites.
+- kubeadm initializes one control-plane node and joins two workers.
+- Cilium provides Kubernetes networking.
+- Flux bootstraps the cluster from GitHub and reconciles the repository.
+- Ansible creates the `flux-system/sops-age` Secret before Flux applies encrypted manifests.
+- cert-manager, External Secrets Operator, kubelet CSR approver, Metrics Server, MetalLB, kube-prometheus-stack, and Traefik are GitOps-managed.
+- Azure Key Vault supplies runtime secrets through External Secrets Operator.
+- cert-manager issues the wildcard certificate used by Traefik.
+- Grafana is deployed through Flux.
+- Traefik NodePorts are pinned so router port-forward rules do not change after a rebuild.
 
-It **does include**:
+The current Flux dependency chain is:
 
-- Proxmox VM provisioning with Terraform
-- Fedora Cloud and cloud-init configuration
-- Kubernetes node preparation and hardening
-- kubeadm control-plane initialization and worker joining
-- Cilium installation and validation
-- Flux GitOps bootstrap and reconciliation validation
-- GitOps repository structure for platform services and applications
-- Operational procedures and safe configuration templates
+```text
+flux-system
+    -> infrastructure-controllers
+    -> infrastructure-configs
+    -> applications
+```
 
-It **does not include complete installation guides** for:
-
-- Installing Proxmox VE
-- Creating the physical Proxmox cluster
-- Designing switching, VLANs, routing, DNS, or firewalling
-- Installing or administering Tailscale
-- Configuring HCP Terraform accounts from first principles
-- General Linux workstation administration
-
-Those systems must already be functional before following the deployment procedures. The [environment setup guide](docs/ENVIRONMENT-SETUP.md) documents the required state and the integration points used by this repository.
+This ordering is functional. More granular dependency separation can be added later after the full rebuild path is verified.
 
 ## Architecture
 
@@ -38,7 +37,8 @@ Those systems must already be functional before following the deployment procedu
 Operator workstation
 ├── Terraform CLI
 ├── Ansible controller
-├── Git and SSH
+├── Git and OpenSSH
+├── SOPS age private key
 └── Administrative kubeconfig
           |
           v
@@ -55,14 +55,34 @@ Kubernetes
 └── Flux
           |
           v
-Git-managed platform and applications
+Git-managed controllers, configuration, and applications
 ```
 
-The current Kubernetes topology uses one control-plane node and two worker nodes. This is a resilient workload topology, but it is **not a highly available Kubernetes control plane** because the API server and etcd run on one control-plane VM.
+The cluster has one control-plane node. Workloads can run across three nodes, but the Kubernetes API server and etcd are not highly available.
 
-## Deployment Lifecycle
+## Ingress Path
 
-### Stage 0 — Infrastructure
+```text
+Internet TCP 80
+    -> router
+    -> 192.168.0.52:32492
+    -> Traefik web NodePort
+
+Internet TCP 443
+    -> router
+    -> 192.168.0.52:30860
+    -> Traefik websecure NodePort
+```
+
+Traefik also has the MetalLB address `192.168.0.220`. That address is a LoadBalancer virtual IP advertised on the LAN. It is not a Pod IP.
+
+Grafana remains behind Traefik as a normal Kubernetes Service. The router forwards to Traefik, not directly to Grafana.
+
+See [Ingress, DNS, and TLS](docs/INGRESS-DNS-AND-TLS.md).
+
+## Deployment Stages
+
+### Stage 0: Proxmox virtual machines
 
 ```bash
 cd terraform
@@ -71,53 +91,52 @@ terraform plan
 terraform apply
 ```
 
-Terraform downloads the Fedora Cloud image to the required Proxmox nodes and creates the three virtual machines.
-
-### Stage 1 — Node baseline
+### Stage 1: Fedora and Kubernetes node baseline
 
 ```bash
 cd ../ansible
 ansible-playbook playbooks/system-init.yml
 ```
 
-This stage prepares Fedora, controls DNF5 transactions, installs Kubernetes tooling and containerd, configures kernel prerequisites, applies SSH and firewall hardening, and verifies the resulting state.
+YubiKey-backed SSH users can run:
 
-### Stage 2 — Kubernetes cluster
+```bash
+../scripts/ansible-yubikey playbooks/system-init.yml
+```
+
+### Stage 2: Kubernetes cluster
 
 ```bash
 ansible-playbook playbooks/cluster-bootstrap.yml
 ```
 
-This stage initializes kubeadm only when required, joins workers only when required, installs Cilium, and validates node, API, CoreDNS, and `kube-system` health.
+### Stage 3: Flux and GitOps platform
 
-### Stage 3 — GitOps platform
+The first bootstrap of a replacement cluster requires a GitHub fine-grained personal access token. The SOPS age private key must also be available on the Ansible controller.
 
 ```bash
+read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+printf '\n'
+export GITHUB_TOKEN
+
 ansible-playbook playbooks/platform-bootstrap.yml
+
+unset GITHUB_TOKEN
 ```
 
-This stage installs a pinned Flux CLI, performs the one-time GitHub bootstrap when required, validates the SSH deploy-key Secret, and waits for the complete GitOps dependency chain.
-
-### Stage 4 — Backup and recovery
+With the YubiKey SSH wrapper:
 
 ```bash
-ansible-playbook playbooks/backup-bootstrap.yml
+read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+printf '\n'
+export GITHUB_TOKEN
+
+../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
+
+unset GITHUB_TOKEN
 ```
 
-This stage is planned. It will connect a replacement cluster to backup storage, inject recovery credentials safely, restore persistent state when appropriate, and validate backup health.
-
-## Current Operational Guarantees
-
-- Terraform variables containing credentials are excluded from Git.
-- Package GPG verification remains enabled.
-- DNF5 transactions are serialized and protected from automatic metadata-job races.
-- Swap and zram are disabled for Kubernetes.
-- containerd uses systemd cgroups.
-- kubeadm initialization and worker joining are state-aware.
-- Cilium and cluster health use Kubernetes-native readiness checks.
-- Flux validates its Git source, SSH authentication material, controllers, branch, and all managed Kustomizations.
-- Healthy second runs of all three current Ansible stages report `changed=0`.
-- Administrative kubeconfig and private SSH keys remain outside the repository.
+The token is not required on later healthy runs because Flux uses the SSH deploy key stored in the cluster.
 
 ## Repository Layout
 
@@ -125,23 +144,21 @@ This stage is planned. It will connect a replacement cluster to backup storage, 
 .
 ├── README.md
 ├── docs/
-│   ├── ENVIRONMENT-SETUP.md
+│   ├── CONFIGURATION-AND-SECRETS.md
+│   ├── CONTROLLER-AUTHENTICATION.md
 │   ├── DEPLOYMENT-WORKFLOW.md
-│   └── CONFIGURATION-AND-SECRETS.md
+│   ├── ENVIRONMENT-SETUP.md
+│   └── INGRESS-DNS-AND-TLS.md
 ├── terraform/
 │   ├── README.md
 │   ├── terraform.tfvars.example
-│   ├── procedures/
-│   │   └── TERRAFORM-PROVISIONING-PROCEDURE.md
-│   └── *.tf
+│   └── procedures/
+│       └── TERRAFORM-PROVISIONING-PROCEDURE.md
 ├── ansible/
 │   ├── README.md
+│   ├── FILE-MAP.md
+│   ├── platform-bootstrap.env.example
 │   ├── inventory/
-│   │   ├── hosts.yml
-│   │   ├── hosts.yml.example
-│   │   └── group_vars/
-│   │       ├── all.yml
-│   │       └── all.yml.example
 │   ├── playbooks/
 │   ├── roles/
 │   └── procedures/
@@ -151,74 +168,39 @@ This stage is planned. It will connect a replacement cluster to backup storage, 
 │       └── FULL-REBUILD-PROCEDURE.md
 ├── clusters/
 │   └── homelab/
-└── kubernetes/
-    ├── infrastructure/
-    └── applications/
+├── kubernetes/
+│   ├── infrastructure/
+│   └── applications/
+└── scripts/
+    ├── ansible-yubikey
+    └── reconcile-known-host.sh
 ```
 
-## First-Time Deployment
-
-Start with:
+## Start Here
 
 1. [Environment setup](docs/ENVIRONMENT-SETUP.md)
-2. [Configuration and secrets](docs/CONFIGURATION-AND-SECRETS.md)
-3. [Terraform provisioning](terraform/procedures/TERRAFORM-PROVISIONING-PROCEDURE.md)
-4. [System initialization](ansible/procedures/SYSTEM-INIT-PROCEDURE.md)
-5. [Cluster bootstrap](ansible/procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md)
-6. [Platform bootstrap](ansible/procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md)
+2. [Controller authentication](docs/CONTROLLER-AUTHENTICATION.md)
+3. [Configuration and secrets](docs/CONFIGURATION-AND-SECRETS.md)
+4. [Deployment workflow](docs/DEPLOYMENT-WORKFLOW.md)
+5. [Terraform provisioning](terraform/procedures/TERRAFORM-PROVISIONING-PROCEDURE.md)
+6. [System initialization](ansible/procedures/SYSTEM-INIT-PROCEDURE.md)
+7. [Cluster bootstrap](ansible/procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md)
+8. [Platform bootstrap](ansible/procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md)
+9. [Full rebuild](ansible/procedures/FULL-REBUILD-PROCEDURE.md)
 
-## Full Rebuild Objective
+## Current Limits
 
-The target disaster-recovery workflow is:
+- The Kubernetes control plane is not highly available.
+- Persistent-volume, database, and application-data restoration is not automated yet.
+- Router and public DNS configuration remain external to Kubernetes.
+- The current Flux dependency graph is intentionally broad and will be refined after a successful unattended rebuild.
+- SELinux remains enabled in permissive mode on the Kubernetes nodes as a documented Fedora compatibility decision.
 
-```text
-terraform apply
-    ↓
-system-init.yml
-    ↓
-cluster-bootstrap.yml
-    ↓
-platform-bootstrap.yml
-    ↓
-Flux reconstructs declarative platform state from Git
-    ↓
-backup-bootstrap.yml restores secrets and persistent application data
-```
+## Next Work
 
-Git preserves desired configuration. External backups must preserve database contents, uploads, persistent-volume data, and other state that cannot be reconstructed from manifests alone.
-
-## Security Note
-
-SELinux remains enabled but is currently configured in permissive mode on Kubernetes nodes because enforcement blocked kubeadm-managed static Pods from required Fedora paths during testing. AVC auditing remains available. This is a documented compatibility decision, not equivalent protection to enforcing mode.
-
-## Roadmap
-
-### Operational
-
-- Terraform provisioning on Proxmox
-- HCP Terraform remote state
-- Fedora node baseline
-- containerd and Kubernetes packages
-- kubeadm control-plane bootstrap
-- Idempotent worker joining
-- Cilium networking
-- Complete cluster-health validation
-- Flux GitOps bootstrap
-- Ordered infrastructure and application reconciliation
-
-### Next
-
-1. Metrics Server
-2. cert-manager
-3. Traefik
-4. Longhorn
-5. Prometheus
-6. Grafana
-7. Loki
-8. Backup and disaster-recovery foundation
-9. Restore testing
-10. Stateful applications
-
-## Documentation Philosophy
-
-The repository documents not only successful configuration but also boundaries, assumptions, validation, security tradeoffs, and recovery procedures.
+1. Run and validate a complete unattended rebuild.
+2. Fix any remaining node-level Metrics Server issue.
+3. Refine Flux dependencies and readiness gates.
+4. Add persistent storage and backup restoration.
+5. Add Loki and centralized log retention.
+6. Update recovery testing, RTO, and RPO documentation.

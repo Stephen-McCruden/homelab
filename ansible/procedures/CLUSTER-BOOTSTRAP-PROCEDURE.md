@@ -2,15 +2,16 @@
 
 ## Purpose
 
-Initialize the control plane, join required workers, install Cilium, and validate the cluster.
+Initialize the control plane, join required workers, install Cilium, and validate the Kubernetes cluster.
 
 ## Preconditions
 
 - `system-init.yml` completed successfully.
-- containerd and kubelet are installed.
-- Swap is disabled.
-- The endpoint and inventory are correct.
-- The nodes can reach package and image registries.
+- containerd and kubelet are installed and running.
+- Swap and zram are disabled.
+- Inventory and kubeadm endpoint values are correct.
+- Nodes can reach package and container registries.
+- Node-to-node firewall rules allow required Kubernetes and Cilium traffic.
 
 ## Preflight
 
@@ -22,27 +23,36 @@ ansible-lint playbooks/cluster-bootstrap.yml
 
 ## Execute
 
+Without a YubiKey:
+
 ```bash
 ansible-playbook playbooks/cluster-bootstrap.yml
 ```
 
+With YubiKey-backed SSH:
+
+```bash
+../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
+```
+
 ## Expected First Run
 
-- Render and validate kubeadm configuration
-- Initialize the control plane
-- Wait for API readiness
-- Fetch the admin kubeconfig
-- Configure Cilium ports
-- Detect workers requiring join
-- Generate a token only when needed
-- Join uninitialized workers
-- Install and validate Cilium
-- Validate all nodes, CoreDNS, API, and system Pods
+- Render and validate kubeadm configuration.
+- Initialize the control plane.
+- Wait for Kubernetes API readiness.
+- Retrieve the administrative kubeconfig.
+- Apply node-level Cilium prerequisites.
+- Detect workers that require joining.
+- Generate a join token only when required.
+- Join uninitialized workers.
+- Install and validate Cilium.
+- Validate nodes, CoreDNS, API readiness, Cilium, and system Pods.
 
-## Validate
+## Validate Locally
 
 ```bash
 export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
+
 kubectl get nodes -o wide
 kubectl get pods -A
 kubectl get --raw=/readyz
@@ -58,23 +68,49 @@ k8s-worker-02  Ready
 
 ## Idempotency
 
+Run the same playbook command again.
+
+Expected behavior:
+
+- `kubeadm init` is skipped.
+- Existing workers are not rejoined.
+- No unused join token is generated.
+- Existing Cilium installation is not recreated unnecessarily.
+- Health checks run again.
+- No failures or unreachable hosts occur.
+
+## Partial kubeadm State
+
+The playbook should fail when a node is in inconsistent partial state. Deliberately reset or rebuild the affected node instead of forcing a new join over unknown kubeadm state.
+
+## Kubelet Serving Certificates
+
+The kubelet configuration must enable server TLS bootstrap so kubelet serving certificates can be issued with valid node address SANs.
+
+The kubelet CSR approver is installed through Flux later, so initial serving CSR behavior must be understood during the bootstrap boundary.
+
+After the platform is deployed, verify:
+
 ```bash
-ansible-playbook playbooks/cluster-bootstrap.yml
+kubectl get certificatesigningrequests
 ```
 
-Expected:
+Approve only CSRs whose signer, requestor, node identity, and requested addresses are expected. Do not enable blanket approval of arbitrary CSRs.
 
-- `kubeadm init` skipped
-- Workers not rejoined
-- No unused token
-- Cilium install skipped
-- Health checks rerun
-- `changed=0`
+## Failure Handling
 
-## Partial State
+### API not Ready
 
-The playbook fails on inconsistent kubeadm state. Deliberately reset or rebuild the affected node rather than forcing a join over partial state.
+Check static Pods, kubelet, containerd, host firewall, kubeadm configuration, and control-plane logs.
 
-## Kubelet Serving CSRs
+### Worker does not join
 
-Pending serving CSRs may affect `exec`, logs, port-forwarding, or kubelet streaming. Do not automatically approve arbitrary CSRs without validating requestor and node identity.
+Check the join token, CA hash, API endpoint, time synchronization, firewall, containerd, kubelet, and partial kubeadm state.
+
+### Cilium not Ready
+
+Check node routes, Cilium-required ports, kernel modules, sysctls, image pulls, and Cilium Pod logs.
+
+### Local kubeconfig missing
+
+Verify the kubeconfig role completed and that `~/.kube/homelab-admin.conf` is mode `0600`.

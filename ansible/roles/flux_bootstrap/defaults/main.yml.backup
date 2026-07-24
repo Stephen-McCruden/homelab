@@ -9,15 +9,13 @@ flux_bootstrap_version_without_prefix: >-
 flux_bootstrap_architecture: amd64
 
 flux_bootstrap_archive_name: >-
-  flux_{{ flux_bootstrap_version_without_prefix }}_linux_{{
-  flux_bootstrap_architecture }}.tar.gz
+  flux_{{ flux_bootstrap_version_without_prefix }}_linux_{{ flux_bootstrap_architecture }}.tar.gz
 
 flux_bootstrap_checksums_name: >-
   flux_{{ flux_bootstrap_version_without_prefix }}_checksums.txt
 
 flux_bootstrap_release_base_url: >-
-  https://github.com/fluxcd/flux2/releases/download/{{
-  flux_bootstrap_version }}
+  https://github.com/fluxcd/flux2/releases/download/{{ flux_bootstrap_version }}
 
 flux_bootstrap_archive_url: >-
   {{ flux_bootstrap_release_base_url }}/{{ flux_bootstrap_archive_name }}
@@ -49,21 +47,6 @@ flux_bootstrap_github_token: >-
 
 flux_bootstrap_namespace: flux-system
 flux_bootstrap_timeout: 10m
-
-# Bootstrap secret used by Flux Kustomizations that enable SOPS decryption.
-# This file is read from the Ansible controller and is never stored in Git.
-# Set SOPS_AGE_KEY_FILE to override the default controller-side path.
-flux_bootstrap_sops_age_secret_name: sops-age
-flux_bootstrap_sops_age_secret_key: age.agekey
-flux_bootstrap_sops_age_key_file: >-
-  {{
-    lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE')
-    | default(
-        lookup('ansible.builtin.env', 'HOME')
-        ~ '/.config/sops/age/keys.txt',
-        true
-      )
-  }}
 
 flux_bootstrap_controller_deployments:
   - source-controller
