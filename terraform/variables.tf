@@ -52,7 +52,7 @@ variable "os_image_filename" {
 
 variable "vm_disk_size" {
   type        = number
-  default     = 30 # This is a very low number and to properly set this up you will need more. This is only for testing as of now.
+  default     = 200 # This is a very low number and to properly set this up you will need more. This is only for testing as of now.
   description = "Root operating system disk allotment size in GB"
 }
 

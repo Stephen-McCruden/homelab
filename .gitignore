@@ -12,3 +12,6 @@ terraform.tvars
 *.kubeconfig
 *.-admin.conf
 .kube/
+
+all.yaml
+hosts.yaml

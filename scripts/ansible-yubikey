@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ANSIBLE_DIR="$REPO_ROOT/ansible"
+
+ASKPASS="${SSH_ASKPASS:-/usr/lib/ssh/ssh-askpass}"
+KEY="${ANSIBLE_YUBIKEY_PATH:-$HOME/.ssh/id_ed25519_sk}"
+
+export SSH_AUTH_SOCK=
+export SSH_ASKPASS="$ASKPASS"
+export SSH_ASKPASS_REQUIRE=force
+
+cd "$ANSIBLE_DIR"
+
+exec ansible-playbook \
+    --forks 1 \
+    --ssh-common-args="-o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=$KEY" \
+    "$@"

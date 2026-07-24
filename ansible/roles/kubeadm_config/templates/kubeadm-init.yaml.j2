@@ -1,3 +1,4 @@
+---
 # FILE PATH: roles/kubeadm_config/templates/kubeadm-init.yaml.j2
 # PURPOSE: kubeadm v1beta4 configuration for the initial homelab
 #          control plane.
@@ -38,4 +39,4 @@ kind: KubeletConfiguration
 
 cgroupDriver: systemd
 rotateCertificates: true
-serverTLSBootstrap: true
+serverTLSBootstrap: false

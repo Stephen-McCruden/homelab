@@ -11,6 +11,7 @@
       - cilium_cli_architecture in ['amd64', 'arm64']
       - cilium_operator_replicas | int > 0
       - cilium_kubeconfig_path | length > 0
+      - cilium_ipam_mode in ['kubernetes', 'cluster-pool']
     fail_msg: >-
       One or more Cilium installation variables are invalid.
 
@@ -106,6 +107,8 @@
       - "{{ cilium_kubeconfig_path }}"
       - --set
       - "operator.replicas={{ cilium_operator_replicas }}"
+      - --set
+      - "ipam.mode={{ cilium_ipam_mode }}"
   register: cilium_install_result
   changed_when: cilium_install_result.rc == 0
   when: cilium_existing_installation.rc != 0
@@ -164,6 +167,24 @@
   delay: 5
   until: cilium_operator_rollout.rc == 0
 
+- name: Wait for CoreDNS Deployment rollout
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cilium_kubeconfig_path }}"
+      - --namespace
+      - kube-system
+      - rollout
+      - status
+      - deployment/coredns
+      - --timeout=30s
+  register: cilium_coredns_rollout
+  changed_when: false
+  retries: 10
+  delay: 5
+  until: cilium_coredns_rollout.rc == 0
+
 - name: Read Cilium agent DaemonSet status
   ansible.builtin.command:
     argv:
@@ -212,7 +233,23 @@
   register: cilium_operator_ready_count
   changed_when: false
 
-- name: Report Cilium workload readiness
+- name: Read CoreDNS Deployment status
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ cilium_kubeconfig_path }}"
+      - --namespace
+      - kube-system
+      - get
+      - deployment
+      - coredns
+      - --output
+      - jsonpath={.status.readyReplicas}/{.status.replicas}
+  register: cilium_coredns_ready_count
+  changed_when: false
+
+- name: Report Cilium and CoreDNS workload readiness
   ansible.builtin.debug:
     msg:
       - >-
@@ -224,3 +261,6 @@
       - >-
         Cilium operators ready:
         {{ cilium_operator_ready_count.stdout }}
+      - >-
+        CoreDNS replicas ready:
+        {{ cilium_coredns_ready_count.stdout }}

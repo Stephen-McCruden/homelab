@@ -10,7 +10,8 @@ cilium_cli_archive: >-
   cilium-linux-{{ cilium_cli_architecture }}.tar.gz
 
 cilium_cli_download_url: >-
-  https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/{{ cilium_cli_archive }}
+  https://github.com/cilium/cilium-cli/releases/download/{{
+  cilium_cli_version }}/{{ cilium_cli_archive }}
 
 cilium_cli_checksum_url: >-
   {{ cilium_cli_download_url }}.sha256sum
@@ -20,3 +21,6 @@ cilium_cli_install_path: /usr/local/bin/cilium
 
 cilium_kubeconfig_path: /etc/kubernetes/admin.conf
 cilium_operator_replicas: 2
+
+# Use the PodCIDRs assigned by Kubernetes from kubeadm's podSubnet.
+cilium_ipam_mode: kubernetes
