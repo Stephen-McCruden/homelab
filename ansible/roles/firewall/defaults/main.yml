@@ -4,21 +4,14 @@
 
 firewall_kubernetes_zone: kubernetes
 firewall_external_zone: public
-firewall_kubernetes_egress_policy: kubernetes-egress
 
-# Networks permitted to reach Kubernetes node services.
-#
-# The management and node-network CIDRs are supplied by inventory.
-# Cilium currently allocates Pod addresses from 10.0.x.x, so Pod-originated
-# traffic must also be associated with the restricted Kubernetes zone.
+# Keep the firewall Pod CIDR tied to kubeadm's authoritative Pod subnet.
+# Pod traffic receives only the explicit host access it needs; it is not
+# added as a trusted source to the broader Kubernetes node zone.
 firewall_pod_network_cidrs:
-  - 10.0.0.0/16
+  - "{{ kubeadm_config_pod_subnet }}"
 
-# Permit forwarding for traffic associated with the Kubernetes zone.
-firewall_kubernetes_forward_enabled: true
-
-# Permit Pod-network traffic to leave through the node's external zone.
-firewall_kubernetes_egress_enabled: true
+firewall_api_server_port: 6443
 
 firewall_control_plane_ports:
   - 80/tcp
@@ -41,4 +34,6 @@ firewall_worker_ports:
   - 10250/tcp
   - 10256/tcp
 
+firewall_allow_nodeport_range: false
 firewall_nodeport_range: 30000-32767/tcp
+

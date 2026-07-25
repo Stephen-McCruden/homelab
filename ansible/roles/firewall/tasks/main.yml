@@ -1,6 +1,6 @@
 # FILE PATH: roles/firewall/tasks/main.yml
-# PURPOSE: Configure a source-restricted firewalld zone for Kubernetes
-#          node, management, and Pod-network traffic.
+# PURPOSE: Configure source-restricted firewalld access for Kubernetes
+#          node traffic and least-privilege Pod access to the API server.
 ---
 
 - name: Install firewalld through shared package management
@@ -17,16 +17,20 @@
     enabled: true
     state: started
 
-- name: Validate firewall network variables
+- name: Validate firewall variables
   ansible.builtin.assert:
     that:
       - cluster_network_cidr | length > 0
       - management_network_cidrs is iterable
       - tailscale_management_cidrs is iterable
       - firewall_pod_network_cidrs is iterable
+      - firewall_pod_network_cidrs | length > 0
       - firewall_kubernetes_zone | length > 0
+      - firewall_external_zone | length > 0
+      - firewall_api_server_port | int > 0
+      - firewall_api_server_port | int <= 65535
     fail_msg: >-
-      One or more required firewall network variables are missing or invalid.
+      One or more required firewall variables are missing or invalid.
 
 - name: Read permanent firewalld zones
   ansible.builtin.command:
@@ -36,6 +40,13 @@
       - --get-zones
   register: firewall_available_zones
   changed_when: false
+
+- name: Verify external firewalld zone exists
+  ansible.builtin.assert:
+    that:
+      - firewall_external_zone in firewall_available_zones.stdout.split()
+    fail_msg: >-
+      External firewalld zone {{ firewall_external_zone }} does not exist.
 
 - name: Create source-restricted Kubernetes zone
   ansible.builtin.command:
@@ -58,7 +69,7 @@
   changed_when: true
   when: firewall_zone_creation.changed | default(false)
 
-- name: Build allowed Kubernetes source list
+- name: Build allowed Kubernetes node source list
   ansible.builtin.set_fact:
     firewall_allowed_sources: >-
       {{
@@ -66,19 +77,48 @@
           management_network_cidrs
           + tailscale_management_cidrs
           + [cluster_network_cidr]
-          + firewall_pod_network_cidrs
         )
         | reject('equalto', '')
         | unique
         | list
       }}
 
-- name: Validate allowed Kubernetes source list
+- name: Validate allowed Kubernetes node source list
   ansible.builtin.assert:
     that:
       - firewall_allowed_sources | length > 0
     fail_msg: >-
       No source networks were generated for the Kubernetes firewalld zone.
+
+- name: Read configured Kubernetes zone sources
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - --list-sources
+  register: firewall_configured_sources
+  changed_when: false
+
+- name: Build stale Kubernetes zone source list
+  ansible.builtin.set_fact:
+    firewall_stale_sources: >-
+      {{
+        firewall_configured_sources.stdout.split()
+        | difference(firewall_allowed_sources)
+        | list
+      }}
+
+- name: Remove stale Kubernetes zone sources
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_kubernetes_zone }}"
+      - "--remove-source={{ item }}"
+  loop: "{{ firewall_stale_sources }}"
+  register: firewall_sources_removed
+  changed_when: true
 
 - name: Query configured Kubernetes zone sources
   ansible.builtin.command:
@@ -132,7 +172,7 @@
       {{
         (
           firewall_control_plane_ports
-          if inventory_hostname in groups['control_plane']
+          if inventory_hostname in groups.get('control_plane', [])
           else firewall_worker_ports
         )
         +
@@ -167,15 +207,53 @@
   register: firewall_ports_added
   changed_when: true
 
+- name: Query Pod-to-API rich rules
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_external_zone }}"
+      - >-
+        --query-rich-rule=rule family="ipv4"
+        source address="{{ item }}"
+        port port="{{ firewall_api_server_port }}"
+        protocol="tcp" accept
+  loop: "{{ firewall_pod_network_cidrs }}"
+  register: firewall_pod_api_rule_queries
+  changed_when: false
+  failed_when: firewall_pod_api_rule_queries.rc not in [0, 1]
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
+- name: Permit Pods to reach the Kubernetes API server
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - --permanent
+      - "--zone={{ firewall_external_zone }}"
+      - >-
+        --add-rich-rule=rule family="ipv4"
+        source address="{{ item.item }}"
+        port port="{{ firewall_api_server_port }}"
+        protocol="tcp" accept
+  loop: "{{ firewall_pod_api_rule_queries.results | default([]) }}"
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+    - item.rc == 1
+  register: firewall_pod_api_rules_added
+  changed_when: true
+
 - name: Reload firewalld when permanent configuration changed
   ansible.builtin.command:
     argv:
       - firewall-cmd
       - --reload
   when: >-
-    firewall_sources_added.changed | default(false)
+    firewall_sources_removed.changed | default(false)
+    or firewall_sources_added.changed | default(false)
     or firewall_ssh_added.changed | default(false)
     or firewall_ports_added.changed | default(false)
+    or firewall_pod_api_rules_added.changed | default(false)
   changed_when: true
 
 - name: Read active Kubernetes zone sources
@@ -187,7 +265,7 @@
   register: firewall_active_sources
   changed_when: false
 
-- name: Verify every required source is active
+- name: Verify every required Kubernetes source is active
   ansible.builtin.assert:
     that:
       - item in firewall_active_sources.stdout.split()
@@ -196,20 +274,53 @@
       {{ firewall_kubernetes_zone }}.
   loop: "{{ firewall_allowed_sources }}"
 
-- name: Query active kubelet port
+- name: Query active required Kubernetes ports
   ansible.builtin.command:
     argv:
       - firewall-cmd
       - "--zone={{ firewall_kubernetes_zone }}"
-      - --query-port=10250/tcp
-  register: firewall_kubelet_port_query
+      - "--query-port={{ item }}"
+  loop: "{{ firewall_required_ports }}"
+  register: firewall_active_port_queries
   changed_when: false
-  failed_when: firewall_kubelet_port_query.rc not in [0, 1]
+  failed_when: firewall_active_port_queries.rc not in [0, 1]
 
-- name: Verify kubelet port is active
+- name: Verify every required Kubernetes port is active
   ansible.builtin.assert:
     that:
-      - firewall_kubelet_port_query.rc == 0
+      - item.rc == 0
     fail_msg: >-
-      Kubelet port 10250/tcp is not active in firewalld zone
+      Required port {{ item.item }} is not active in firewalld zone
       {{ firewall_kubernetes_zone }}.
+  loop: "{{ firewall_active_port_queries.results }}"
+
+- name: Query active Pod-to-API rich rules
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - "--zone={{ firewall_external_zone }}"
+      - >-
+        --query-rich-rule=rule family="ipv4"
+        source address="{{ item }}"
+        port port="{{ firewall_api_server_port }}"
+        protocol="tcp" accept
+  loop: "{{ firewall_pod_network_cidrs }}"
+  register: firewall_active_pod_api_rule_queries
+  changed_when: false
+  failed_when: firewall_active_pod_api_rule_queries.rc not in [0, 1]
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
+- name: Verify Pod-to-API rich rules are active
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+    fail_msg: >-
+      Pod CIDR {{ item.item }} cannot reach TCP
+      {{ firewall_api_server_port }} through firewalld zone
+      {{ firewall_external_zone }}.
+  loop: >-
+    {{ firewall_active_pod_api_rule_queries.results | default([]) }}
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
