@@ -1,0 +1,14 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mccruden-site/kustomization.yaml
+# PURPOSE: Deploy the public mccruden.com preview workload through Flux.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - poddisruptionbudget.yaml

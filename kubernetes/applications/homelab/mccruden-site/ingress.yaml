@@ -1,0 +1,29 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mccruden-site/ingress.yaml
+# PURPOSE: Route preview.mccruden.com through Traefik HTTPS.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mccruden-site
+  namespace: mccruden-site
+  labels:
+    app.kubernetes.io/name: mccruden-site
+    app.kubernetes.io/part-of: mccruden-com
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+
+  rules:
+    - host: preview.mccruden.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mccruden-site
+                port:
+                  name: http
