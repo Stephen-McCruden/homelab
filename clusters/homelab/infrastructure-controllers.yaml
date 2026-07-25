@@ -1,6 +1,6 @@
 # FILE PATH: clusters/homelab/infrastructure-controllers.yaml
-# PURPOSE: Reconcile platform controllers before shared configuration
-#          and applications.
+# PURPOSE: Reconcile controllers required by platform configuration and
+#          application workloads. Node metrics is reconciled separately.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -11,9 +11,14 @@ spec:
   interval: 10m
   retryInterval: 1m
   timeout: 10m
-  path: ./kubernetes/infrastructure/controllers
-  prune: true
+  path: ./kubernetes/infrastructure/controllers/core
+
+  # Keep pruning disabled during the ownership migration. This prevents
+  # Metrics Server and the CSR approver from being deleted while their
+  # new Kustomizations adopt them.
+  prune: false
   wait: true
+
   sourceRef:
     kind: GitRepository
     name: flux-system

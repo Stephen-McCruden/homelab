@@ -71,13 +71,8 @@ flux_bootstrap_controller_deployments:
   - helm-controller
   - notification-controller
 
-# The critical application path is checked first. The independent kubelet
-# certificate and Metrics Server paths are checked afterward so a node-metrics
-# failure cannot prevent configs and applications from being reconciled.
 flux_bootstrap_managed_kustomizations:
   - flux-system
   - infrastructure-controllers
   - infrastructure-configs
   - applications
-  - infrastructure-kubelet-csr-approver
-  - infrastructure-metrics-server

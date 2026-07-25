@@ -1,0 +1,23 @@
+# FILE PATH: clusters/homelab/infrastructure-metrics-server.yaml
+# PURPOSE: Reconcile Metrics Server after the kubelet serving-certificate
+#          approver is healthy, without blocking platform configuration.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-metrics-server
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infrastructure-kubelet-csr-approver
+
+  interval: 10m
+  retryInterval: 1m
+  timeout: 10m
+  path: ./kubernetes/infrastructure/controllers/metrics-server
+  prune: true
+  wait: true
+
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

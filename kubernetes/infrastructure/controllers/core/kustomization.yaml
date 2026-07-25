@@ -1,0 +1,14 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/core/kustomization.yaml
+# PURPOSE: Entry point for controllers required before platform
+#          configuration and applications can reconcile.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../cert-manager
+  - ../external-secrets
+  - ../kube-prometheus-stack
+  - ../metallb
+  - ../traefik
