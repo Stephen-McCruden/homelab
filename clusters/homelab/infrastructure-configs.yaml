@@ -1,3 +1,6 @@
+# FILE PATH: clusters/homelab/infrastructure-configs.yaml
+# PURPOSE: Reconcile shared platform configuration only after all
+#          application-critical controllers are healthy.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -23,3 +26,4 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
+

@@ -1,5 +1,5 @@
 # FILE PATH: clusters/homelab/applications.yaml
-# PURPOSE: Reconcile application workloads only after platform
+# PURPOSE: Reconcile application workloads only after shared platform
 #          configuration is healthy.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -17,6 +17,7 @@ spec:
   path: ./kubernetes/applications/homelab
   prune: true
   wait: true
+
   sourceRef:
     kind: GitRepository
     name: flux-system

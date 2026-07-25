@@ -12,11 +12,7 @@ spec:
   retryInterval: 1m
   timeout: 10m
   path: ./kubernetes/infrastructure/controllers/core
-
-  # Keep pruning disabled during the ownership migration. This prevents
-  # Metrics Server and the CSR approver from being deleted while their
-  # new Kustomizations adopt them.
-  prune: false
+  prune: true
   wait: true
 
   sourceRef:
