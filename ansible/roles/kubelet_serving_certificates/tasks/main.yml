@@ -1,0 +1,164 @@
+# FILE PATH: roles/kubelet_serving_certificates/tasks/main.yml
+# PURPOSE: Persist the cluster-wide kubelet serving-certificate setting,
+#          reconcile every node, and restart kubelet only when required.
+---
+
+- name: Validate kubelet serving-certificate variables
+  ansible.builtin.assert:
+    that:
+      - kubelet_serving_certificates_enabled is boolean
+      - kubelet_serving_certificates_config_path | length > 0
+      - kubelet_serving_certificates_kubeadm_config_path | length > 0
+      - kubelet_serving_certificates_admin_kubeconfig | length > 0
+      - kubelet_serving_certificates_port | int > 0
+      - kubelet_serving_certificates_port | int <= 65535
+    fail_msg: >-
+      One or more kubelet serving-certificate variables are invalid.
+
+- name: Build desired kubelet serving-certificate value
+  ansible.builtin.set_fact:
+    kubelet_serving_certificates_desired_value: >-
+      {{
+        kubelet_serving_certificates_enabled
+        | bool
+        | ternary('true', 'false')
+      }}
+    kubelet_serving_certificates_desired_line: >-
+      serverTLSBootstrap:
+      {{
+        kubelet_serving_certificates_enabled
+        | bool
+        | ternary('true', 'false')
+      }}
+
+- name: Verify control-plane kubeadm configuration exists
+  ansible.builtin.stat:
+    path: "{{ kubelet_serving_certificates_kubeadm_config_path }}"
+  register: kubelet_serving_certificates_kubeadm_config
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
+- name: Verify control-plane administrative kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ kubelet_serving_certificates_admin_kubeconfig }}"
+  register: kubelet_serving_certificates_admin_config
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
+- name: Validate control-plane configuration files
+  ansible.builtin.assert:
+    that:
+      - kubelet_serving_certificates_kubeadm_config.stat.exists
+      - kubelet_serving_certificates_admin_config.stat.exists
+    fail_msg: >-
+      The control-plane kubeadm configuration or administrative kubeconfig
+      is missing. Complete control-plane bootstrap before reconciling
+      kubelet serving certificates.
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
+- name: Read cluster-wide kubelet configuration
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ kubelet_serving_certificates_admin_kubeconfig }}"
+      - --namespace
+      - kube-system
+      - get
+      - configmap
+      - kubelet-config
+      - "-o=jsonpath={.data.kubelet}"
+  register: kubelet_serving_certificates_cluster_config
+  changed_when: false
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+
+- name: Upload updated cluster-wide kubelet configuration
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - upload-config
+      - kubelet
+      - --config
+      - "{{ kubelet_serving_certificates_kubeadm_config_path }}"
+      - --kubeconfig
+      - "{{ kubelet_serving_certificates_admin_kubeconfig }}"
+  register: kubelet_serving_certificates_upload
+  changed_when: true
+  when:
+    - inventory_hostname in groups.get('control_plane', [])
+    - >-
+      kubelet_serving_certificates_desired_line
+      not in kubelet_serving_certificates_cluster_config.stdout_lines
+
+- name: Verify local kubelet configuration exists
+  ansible.builtin.stat:
+    path: "{{ kubelet_serving_certificates_config_path }}"
+  register: kubelet_serving_certificates_local_config
+
+- name: Assert local kubelet configuration exists
+  ansible.builtin.assert:
+    that:
+      - kubelet_serving_certificates_local_config.stat.exists
+      - kubelet_serving_certificates_local_config.stat.isreg
+    fail_msg: >-
+      {{ kubelet_serving_certificates_config_path }} is missing.
+      Complete kubeadm initialization or join on {{ inventory_hostname }}
+      before reconciling kubelet serving certificates.
+
+- name: Enable secure kubelet serving-certificate bootstrap
+  ansible.builtin.lineinfile:
+    path: "{{ kubelet_serving_certificates_config_path }}"
+    regexp: '^\s*serverTLSBootstrap\s*:'
+    line: >-
+      serverTLSBootstrap:
+      {{ kubelet_serving_certificates_desired_value }}
+    insertafter: EOF
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart kubelet after serving-certificate change
+
+- name: Apply pending kubelet serving-certificate handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure kubelet is enabled and running
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true
+    state: started
+
+- name: Read effective local serving-certificate setting
+  ansible.builtin.command:
+    argv:
+      - awk
+      - "-F:[[:space:]]*"
+      - >-
+        $1 == "serverTLSBootstrap" { print $2 }
+      - "{{ kubelet_serving_certificates_config_path }}"
+  register: kubelet_serving_certificates_effective_setting
+  changed_when: false
+
+- name: Verify local serving-certificate bootstrap is enabled
+  ansible.builtin.assert:
+    that:
+      - >-
+        kubelet_serving_certificates_effective_setting.stdout
+        | trim
+        ==
+        kubelet_serving_certificates_desired_value
+    fail_msg: >-
+      {{ inventory_hostname }} did not apply
+      serverTLSBootstrap:
+      {{ kubelet_serving_certificates_desired_value }}.
+
+- name: Wait for kubelet HTTPS endpoint
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ kubelet_serving_certificates_port }}"
+    state: started
+    connect_timeout: 5
+    timeout: 120

@@ -11,7 +11,11 @@ firewall_external_zone: public
 firewall_pod_network_cidrs:
   - "{{ kubeadm_config_pod_subnet }}"
 
+# Pod-to-host access is kept explicit and least-privilege. CoreDNS and other
+# in-cluster clients require the API server, while Metrics Server requires the
+# kubelet HTTPS endpoint on every node.
 firewall_api_server_port: 6443
+firewall_kubelet_port: 10250
 
 firewall_control_plane_ports:
   - 80/tcp
@@ -36,4 +40,3 @@ firewall_worker_ports:
 
 firewall_allow_nodeport_range: false
 firewall_nodeport_range: 30000-32767/tcp
-

@@ -39,4 +39,4 @@ kind: KubeletConfiguration
 
 cgroupDriver: systemd
 rotateCertificates: true
-serverTLSBootstrap: false
+serverTLSBootstrap: {{ kubeadm_config_server_tls_bootstrap | bool | ternary('true', 'false') }}

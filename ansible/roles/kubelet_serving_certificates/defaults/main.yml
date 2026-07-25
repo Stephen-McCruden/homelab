@@ -1,0 +1,13 @@
+# FILE PATH: roles/kubelet_serving_certificates/defaults/main.yml
+# PURPOSE: Defaults for reconciling secure kubelet serving certificates.
+---
+
+# This role is independently responsible for enabling secure kubelet
+# serving-certificate bootstrap. Do not derive this value from another
+# role's private defaults.
+kubelet_serving_certificates_enabled: true
+
+kubelet_serving_certificates_config_path: /var/lib/kubelet/config.yaml
+kubelet_serving_certificates_kubeadm_config_path: /etc/kubernetes/kubeadm-init.yaml
+kubelet_serving_certificates_admin_kubeconfig: /etc/kubernetes/admin.conf
+kubelet_serving_certificates_port: 10250

@@ -1,0 +1,10 @@
+# FILE PATH: roles/kubelet_serving_certificates/handlers/main.yml
+# PURPOSE: Restart kubelet only when its serving-certificate configuration
+#          changes.
+---
+
+- name: Restart kubelet after serving-certificate change
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true
+    state: restarted

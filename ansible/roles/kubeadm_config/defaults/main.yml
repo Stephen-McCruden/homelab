@@ -13,3 +13,8 @@ kubeadm_config_service_subnet: "10.96.0.0/12"
 kubeadm_config_dns_domain: cluster.local
 
 kubeadm_config_cri_socket: unix:///run/containerd/containerd.sock
+
+# Request Kubernetes-CA-signed kubelet serving certificates. The
+# kubelet-csr-approver controller validates and approves these requests so
+# Metrics Server can verify every kubelet without --kubelet-insecure-tls.
+kubeadm_config_server_tls_bootstrap: true

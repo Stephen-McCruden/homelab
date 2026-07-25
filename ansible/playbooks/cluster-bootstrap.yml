@@ -1,6 +1,7 @@
 # FILE PATH: playbooks/cluster-bootstrap.yml
 # PURPOSE: Initialize the control plane, join workers when required,
-#          install Cilium, retrieve kubeconfig, and verify cluster health.
+#          reconcile secure kubelet serving certificates, install Cilium,
+#          retrieve kubeconfig, and verify cluster health.
 ---
 
 - name: Bootstrap initial Kubernetes control plane
@@ -28,6 +29,7 @@
           - kubeadm_config_service_subnet | length > 0
           - kubeadm_config_cri_socket | length > 0
           - kubeadm_config_file_path | length > 0
+          - kubeadm_config_server_tls_bootstrap is boolean
           - kubeconfig_controller_path | length > 0
         fail_msg: >-
           One or more required Kubernetes bootstrap variables are missing.
@@ -155,6 +157,15 @@
 
   roles:
     - role: worker_join
+
+- name: Reconcile secure kubelet serving certificates
+  hosts: kubernetes_cluster
+  gather_facts: false
+  become: true
+  serial: 1
+
+  roles:
+    - role: kubelet_serving_certificates
 
 - name: Verify worker nodes registered before CNI installation
   hosts: control_plane
