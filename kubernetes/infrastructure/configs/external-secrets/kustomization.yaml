@@ -1,6 +1,6 @@
 # FILE PATH:
 # kubernetes/infrastructure/configs/external-secrets/kustomization.yaml
-# PURPOSE: Configure Azure Key Vault access for External Secrets Operator.
+# PURPOSE: Configure Azure Key Vault access and synchronize platform secrets.
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -10,3 +10,4 @@ resources:
   - clustersecretstore.yaml
   - cloudflare-api-token.yaml
   - grafana-admin-credentials.yaml
+  - letsencrypt-production-account-key.yaml

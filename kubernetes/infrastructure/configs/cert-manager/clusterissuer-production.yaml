@@ -1,6 +1,7 @@
 # FILE PATH:
 # kubernetes/infrastructure/configs/cert-manager/clusterissuer-production.yaml
-# PURPOSE: Configure Let's Encrypt production with Cloudflare DNS-01.
+# PURPOSE: Configure Let's Encrypt production with a persistent ACME account key
+#          supplied by External Secrets Operator.
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -11,8 +12,12 @@ spec:
     email: stephen@mccruden.com
     server: https://acme-v02.api.letsencrypt.org/directory
 
+    # The account key is restored from Azure Key Vault before cert-manager
+    # registers or reuses the production ACME account.
+    disableAccountKeyGeneration: true
     privateKeySecretRef:
-      name: letsencrypt-production-account-key
+      name: letsencrypt-production-account-key-managed
+      key: tls.key
 
     solvers:
       - dns01:
@@ -20,3 +25,4 @@ spec:
             apiTokenSecretRef:
               name: cloudflare-api-token
               key: api-token
+
