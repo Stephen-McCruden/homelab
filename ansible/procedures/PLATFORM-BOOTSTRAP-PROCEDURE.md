@@ -2,300 +2,204 @@
 
 ## Purpose
 
-Install Flux, create the SOPS age Secret, connect Kubernetes to GitHub, and validate the complete GitOps reconciliation chain.
-
-## Current Bootstrap Order
-
-```text
-Validate Kubernetes API
-    -> install or verify Flux CLI
-    -> verify controller-side SOPS age private key
-    -> create flux-system namespace
-    -> create or update flux-system/sops-age
-    -> detect whether Flux bootstrap is required
-    -> bootstrap GitHub only when required
-    -> validate Flux SSH authentication Secret
-    -> wait for controllers and Git source
-    -> wait for every managed Kustomization
-```
-
-The operator should not manually create `sops-age` during a normal deployment.
+Provision the Flux SOPS bootstrap Secret, connect the cluster to GitHub, and
+wait for the complete GitOps dependency graph.
 
 ## Preconditions
 
-- `cluster-bootstrap.yml` completed successfully.
-- Kubernetes API is Ready.
+- `cluster-bootstrap.yml` completed.
+- Kubernetes API reports `ok` at `/readyz`.
 - `/etc/kubernetes/admin.conf` exists on `k8s-master-01`.
-- Flux owner, repository, branch, and path variables are correct.
-- The GitOps repository content is pushed.
-- The controller has the correct SOPS age private key.
-- A GitHub fine-grained token is available for a new cluster bootstrap.
+- the desired repository commit is pushed to `main`.
+- Flux owner, repository, branch, and cluster path are correct.
+- the controller SOPS age identity can decrypt the Azure bootstrap manifest.
+- Azure Key Vault contains all documented runtime secrets.
+- a short-lived GitHub token is available if Flux is absent.
 
-## Validate the Playbook
+## Preflight
 
 ```bash
-cd /home/stoof/GitHub/homelab/ansible
+cd /path/to/homelab/ansible
+
 ansible-playbook playbooks/platform-bootstrap.yml --syntax-check
-ansible-lint playbooks/platform-bootstrap.yml
+ansible-lint --profile min playbooks/platform-bootstrap.yml
 ```
 
-## Verify the SOPS Age Key
-
-Default path:
-
-```text
-~/.config/sops/age/keys.txt
-```
-
-Optional override:
-
-```bash
-export SOPS_AGE_KEY_FILE="/secure/path/keys.txt"
-```
-
-Validate without printing it:
+Validate the SOPS identity:
 
 ```bash
 SOPS_KEY_PATH="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+test -s "$SOPS_KEY_PATH"
+grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH"
 
-test -s "$SOPS_KEY_PATH" \
-  && echo "SOPS age key file found"
-
-grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH" \
-  && echo "SOPS age identity found"
-```
-
-Optional local decryption test:
-
-```bash
-cd /home/stoof/GitHub/homelab
+cd ..
 sops --decrypt \
   kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml \
   >/dev/null
 cd ansible
 ```
 
-## Create the GitHub Fine-Grained Token
+## First Bootstrap Token
 
-For the current SSH deploy-key bootstrap, configure:
+Create a short-lived fine-grained PAT for only the homelab repository:
 
 ```text
-Resource owner:     Stephen-McCruden
-Repository access:  only homelab
-Administration:     Read and write
-Contents:           Read and write
-Metadata:           Read-only
+Administration: Read and write
+Contents:       Read and write
+Metadata:       Read-only
 ```
 
-Administration must be read/write because the Flux command uses `--token-auth=false` and creates a deploy key.
+Flux uses it to create a read-only SSH deploy key. Later healthy runs do not
+need the PAT.
 
-Use a short expiration.
+## Execute a New Bootstrap
 
-## Load the Token
+YubiKey:
 
 ```bash
-read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
-printf '\n'
-export GITHUB_TOKEN
+(
+  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+  printf '\n'
+  export GITHUB_TOKEN
+
+  ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
+)
 ```
 
-Confirm without printing it:
+File-backed key:
 
 ```bash
-test -n "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN is loaded"
+(
+  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+  printf '\n'
+  export GITHUB_TOKEN
+
+  ansible-playbook playbooks/platform-bootstrap.yml
+)
 ```
 
-Optional API validation:
+## Expected Sequence
 
-```bash
-curl --fail --silent --show-error \
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  https://api.github.com/user \
-  >/dev/null
+```text
+validate Kubernetes API
+  -> install/checksum-verify Flux CLI v2.9.1
+  -> validate controller SOPS age identity
+  -> create flux-system namespace
+  -> create/update flux-system/sops-age
+  -> detect complete or absent Flux bootstrap state
+  -> bootstrap GitHub only when absent
+  -> verify SSH deploy-key Secret
+  -> wait for Flux controllers and Git source
+  -> wait for six managed Kustomizations
+  -> run flux check
 ```
 
-## Execute Without a YubiKey
+## Pull the Generated Commit
+
+On a first bootstrap, Flux writes its generated manifests:
 
 ```bash
-ansible-playbook playbooks/platform-bootstrap.yml
-```
-
-## Execute With YubiKey-Backed SSH
-
-```bash
-../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
-```
-
-The YubiKey is used for SSH to the Kubernetes node. It does not replace the GitHub token or the SOPS age key.
-
-## Remove the Token
-
-```bash
-unset GITHUB_TOKEN
-test -z "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN removed from this shell"
-```
-
-If `SOPS_AGE_KEY_FILE` was exported only for this run:
-
-```bash
-unset SOPS_AGE_KEY_FILE
-```
-
-`unset` does not revoke the GitHub token. Revoke it in GitHub after successful bootstrap or allow a short-lived token to expire.
-
-## Pull the Flux Commit
-
-On first bootstrap, Flux commits generated manifests to GitHub.
-
-```bash
-cd /home/stoof/GitHub/homelab
+cd /path/to/homelab
 git pull --rebase origin main
 ```
 
-## Validate SOPS Secret Creation
+Review the generated files under `clusters/homelab/flux-system/`.
+
+## Acceptance
 
 ```bash
 export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
 
-kubectl get secret sops-age -n flux-system
-```
-
-Check only the key name:
-
-```bash
-kubectl get secret sops-age -n flux-system \
-  -o jsonpath='{.data}' |
-  jq 'keys'
-```
-
-Expected:
-
-```text
-age.agekey
-```
-
-Do not decode or print the key value.
-
-## Validate Flux
-
-```bash
 flux check
-flux get sources git -A
-kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A
-kubectl get helmreleases.helm.toolkit.fluxcd.io -A
+flux get sources git --all-namespaces
+kubectl get kustomizations --namespace flux-system
+kubectl get helmreleases --all-namespaces
 ```
 
 Expected Kustomizations:
 
 ```text
-flux-system                 Ready=True
-infrastructure-controllers  Ready=True
-infrastructure-configs      Ready=True
-applications                Ready=True
+flux-system
+infrastructure-controllers
+infrastructure-configs
+applications
+infrastructure-kubelet-csr-approver
+infrastructure-metrics-server
 ```
 
-## Validate External Secrets and TLS
+Every Ready condition must be `True`.
+
+Verify bootstrap and runtime dependencies without returning values:
 
 ```bash
+kubectl get secret sops-age --namespace flux-system
 kubectl get clustersecretstore
-kubectl get externalsecret -A
+kubectl get externalsecret --all-namespaces
 kubectl get clusterissuer
-kubectl get certificate -A
-```
-
-## Validate Traefik Static Ports
-
-```bash
-kubectl get service traefik -n traefik -o yaml
-```
-
-Expected:
-
-```text
-web NodePort:       32492
-websecure NodePort: 30860
-LoadBalancer IP:    192.168.0.220
+kubectl get certificate --all-namespaces
+kubectl get certificatesigningrequests
+kubectl top nodes
 ```
 
 ## Later Runs
-
-A healthy existing Flux installation does not require `GITHUB_TOKEN`.
-
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/platform-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
 
 ```bash
 ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
 ```
 
-Ansible still verifies the local SOPS age key and ensures the cluster Secret matches it.
+No `GITHUB_TOKEN` is required while Flux's GitRepository, root Kustomization,
+and authentication Secret all exist. The playbook still verifies the controller
+SOPS identity and reconciles `sops-age`.
 
 ## Troubleshooting
 
-### `Initial Flux bootstrap requires GITHUB_TOKEN`
+### Token required
 
-Flux was not detected in the cluster and the controller environment does not contain the token.
+Flux is absent. Load a valid fine-grained PAT and rerun.
 
-Load the token and rerun the playbook.
+### GitHub permission
 
-### GitHub permission error
+Check owner, repository scope, expiration, Administration read/write, Contents
+read/write, and Metadata read-only.
 
-Verify:
+### SOPS identity
 
-- The token belongs to the repository owner or has authorized access.
-- Repository access includes only the correct repository.
-- Administration is read/write.
-- Contents is read/write.
-- Metadata is read-only.
-- The token is not expired or revoked.
-
-### SOPS age key not found
-
-Verify the default path or export `SOPS_AGE_KEY_FILE`.
-
-Do not place the private key in Git.
-
-### `secrets "sops-age" not found`
-
-The updated Ansible role should create the Secret before Flux reconciliation. Confirm the deployed role contains the SOPS tasks and rerun `platform-bootstrap.yml`.
-
-### Encrypted manifest cannot be decrypted
-
-Verify:
-
-- The local age key decrypts the file with `sops --decrypt`.
-- `.sops.yaml` contains the matching age recipient.
-- `infrastructure-configs` references `secretRef.name: sops-age`.
-- The Secret contains the `age.agekey` key.
+Check the default path or `SOPS_AGE_KEY_FILE`. Never place the identity in Git.
 
 ### Partial Flux state
 
-The role intentionally fails if the GitRepository, root Kustomization, and Flux authentication Secret do not either all exist or all not exist.
-
-Inspect the partial state before deleting anything:
-
-```bash
-kubectl get gitrepository,kustomization,secret -n flux-system
-```
-
-### Kustomization dependency not Ready
-
-Check in order:
+The role fails unless GitRepository, root Kustomization, and authentication
+Secret are all present or all absent:
 
 ```bash
-kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A
-kubectl get helmreleases.helm.toolkit.fluxcd.io -A
-kubectl get events -A --sort-by=.lastTimestamp
+kubectl get gitrepository,kustomization,secret --namespace flux-system
 ```
 
-Fix the first failing dependency instead of manually forcing every later Kustomization.
+Inspect before deleting anything.
 
-## Official Reference
+### Kustomization dependency
 
-- [Flux bootstrap for GitHub](https://fluxcd.io/flux/installation/bootstrap/github/)
+```bash
+kubectl get kustomizations --namespace flux-system
+kubectl describe kustomization NAME --namespace flux-system
+kubectl get helmreleases --all-namespaces
+kubectl get events --all-namespaces --sort-by=.lastTimestamp
+```
+
+Fix the first stalled resource.
+
+### Source revision is old
+
+```bash
+flux reconcile source git flux-system \
+  --namespace flux-system \
+  --timeout=5m
+
+flux reconcile kustomization NAME \
+  --namespace flux-system \
+  --with-source \
+  --timeout=10m
+```
+
+See [Troubleshooting](../../docs/TROUBLESHOOTING.md) for the complete failure
+tree.

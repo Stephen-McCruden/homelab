@@ -1,34 +1,49 @@
-# Homelab Terraform
+# Terraform: Proxmox Virtual Machines
 
-This directory provisions three Fedora Cloud virtual machines across an existing Proxmox VE cluster.
+This directory creates the Fedora Cloud virtual machines used by Kubernetes.
+It assumes that Proxmox, its storage, network bridges, API identity, and HCP
+Terraform workspace already exist.
 
-Terraform owns the VM infrastructure. Ansible owns Fedora and Kubernetes configuration. Flux owns Kubernetes platform and application resources.
+## Ownership Boundary
+
+Terraform owns:
+
+- Fedora Cloud image downloads on target Proxmox nodes
+- VM names, IDs, placement, CPU, memory, boot disk, and NIC
+- cloud-init username, public SSH keys, static address, gateway, and DNS
+
+Terraform does not own:
+
+- Fedora configuration after cloud-init
+- containerd or Kubernetes
+- Cilium
+- Flux
+- Kubernetes controllers or applications
+- router rules, public DNS, Azure Key Vault, or application-data restore
+
+See [Architecture](../docs/ARCHITECTURE.md).
+
+## Reference Topology
+
+| VM | Proxmox | VM ID | Address | CPU | Memory |
+|---|---|---:|---:|---:|---:|
+| `k8s-worker-01` | `pve1` | 150 | `192.168.0.50/24` | 4 | 8192 MiB |
+| `k8s-worker-02` | `pve2` | 151 | `192.168.0.51/24` | 4 | 8192 MiB |
+| `k8s-master-01` | `pve3` | 152 | `192.168.0.52/24` | 4 | 8192 MiB |
 
 ## Requirements
 
-- Healthy Proxmox VE cluster with quorum.
-- Existing storage IDs and Linux bridges.
-- Dedicated Proxmox API identity and token.
-- Controller access to the Proxmox API.
-- Configured HCP Terraform organization and workspace, or an intentionally different backend.
-- Local `terraform.tfvars`.
-- SSH public key matching the Ansible controller's private key or YubiKey-backed SSH key.
+- healthy Proxmox cluster with quorum
+- target datastores and bridge on every selected node
+- dedicated Proxmox API token
+- provider SSH access to Proxmox hosts
+- existing HCP Terraform organization and CLI-driven workspace
+- local `terraform.tfvars`
+- public SSH key matching the Ansible controller identity
 
-See:
+See [Environment setup](../docs/ENVIRONMENT-SETUP.md).
 
-- [Environment setup](../docs/ENVIRONMENT-SETUP.md)
-- [Configuration and secrets](../docs/CONFIGURATION-AND-SECRETS.md)
-- [Terraform procedure](procedures/TERRAFORM-PROVISIONING-PROCEDURE.md)
-
-## Topology
-
-```text
-k8s-worker-01  192.168.0.50  pve1
-k8s-worker-02  192.168.0.51  pve2
-k8s-master-01  192.168.0.52  pve3
-```
-
-## Prepare Variables
+## Local Variables
 
 ```bash
 cp -n terraform.tfvars.example terraform.tfvars
@@ -36,44 +51,71 @@ chmod 600 terraform.tfvars
 git check-ignore -v terraform.tfvars
 ```
 
-Do not overwrite a populated local variable file.
+Replace every placeholder. The example intentionally contains no real
+credential.
 
-## HCP Terraform
+The current `variables.tf` default and example disagree on root-disk size. Set
+`vm_disk_size` explicitly in `terraform.tfvars` until that implementation
+decision is corrected. Longhorn should later use a separate virtual disk rather
+than consuming the root disk.
 
-Configure the organization and workspace in the Terraform `cloud` block, then:
+## Backend
+
+The HCP configuration is in `main.tf`:
+
+```text
+Organization: stoof-homelab
+Workspace:    stoof-lab
+```
+
+A reproducer must replace those values:
 
 ```bash
 terraform login
 terraform init
 ```
 
-The cloud block is backend configuration and cannot use normal Terraform input variables.
-
-## Standard Workflow
+## Validate and Apply
 
 ```bash
-terraform fmt -recursive
+terraform fmt -check -recursive
 terraform validate
-terraform plan
-terraform apply
+terraform plan -out=tfplan
+terraform apply tfplan
 ```
 
-Review every plan before applying it.
+Review every create, replacement, and delete action. A saved plan can contain
+sensitive data and must not be committed.
 
-## Destruction
+## Acceptance
+
+After cloud-init:
 
 ```bash
-terraform plan -destroy
-terraform destroy
+for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+  ping -c 2 "$address"
+done
 ```
 
-Destruction removes the Kubernetes VMs. Until backup restoration is implemented, cluster-local persistent application data is not recoverable from Git alone.
+Then test SSH. For YubiKey:
+
+```bash
+ssh -o IdentitiesOnly=yes \
+  -i "$HOME/.ssh/id_ed25519_sk" \
+  stoof@192.168.0.52 true
+```
+
+Also verify routing and DNS from a VM:
+
+```bash
+ip route
+resolvectl status
+getent hosts registry.k8s.io
+```
+
+Continue with [System initialization](../ansible/procedures/SYSTEM-INIT-PROCEDURE.md).
 
 ## State
-
-HCP Terraform stores the current remote state for the configured workspace.
-
-Useful commands:
 
 ```bash
 terraform state list
@@ -81,26 +123,38 @@ terraform show
 terraform output
 ```
 
-Do not manually edit state.
+Do not manually edit state. Treat state output as sensitive because provider
+state may contain input values.
 
-## Boundaries
+## Destruction
 
-Terraform does not:
+Use the
+[full rebuild procedure](../ansible/procedures/FULL-REBUILD-PROCEDURE.md),
+not a remembered `terraform destroy` command.
 
-- Configure Fedora after cloud-init.
-- Install Kubernetes or containerd.
-- Run kubeadm.
-- Install Cilium.
-- Bootstrap Flux.
-- Create the Flux SOPS Secret.
-- Deploy Kubernetes applications.
-- Restore persistent application data.
-
-## Pre-Commit Validation
+At minimum:
 
 ```bash
-terraform fmt -recursive
+terraform plan -destroy
+terraform destroy
+```
+
+Destruction removes the Kubernetes VMs. Git restores desired configuration, but
+it does not restore etcd or application data. Require external backup and
+restore evidence before destroying stateful workloads.
+
+## Validation Before Commit
+
+```bash
+terraform fmt -check -recursive
 terraform validate
 git diff --check
 git status --short
 ```
+
+The provider constraint should eventually be pinned to the release proven by a
+full rebuild rather than allowing every version newer than `0.65.0`.
+
+See the
+[Terraform provisioning procedure](procedures/TERRAFORM-PROVISIONING-PROCEDURE.md)
+for the complete operator sequence.

@@ -2,214 +2,378 @@
 
 ## Purpose
 
-Recreate the Proxmox virtual machines, Fedora node state, Kubernetes cluster, Flux installation, SOPS bootstrap Secret, and Git-managed platform resources after a deliberate destroy or VM loss.
+Recreate the Terraform-managed VMs, Fedora baseline, Kubernetes cluster, Flux
+installation, SOPS bootstrap Secret, platform controllers, configuration, and
+applications after deliberate destruction or total VM loss.
 
-## Current Limit
+This is the canonical rebuild runbook.
 
-This procedure restores infrastructure and declarative Kubernetes resources. It does not yet restore databases, uploads, PVC contents, or other persistent application data.
+## Recovery Boundary
 
-## Before Destroy
+This procedure currently restores:
+
+- VM definitions
+- Fedora and node configuration
+- Kubernetes and Cilium
+- secure kubelet serving certificates
+- Flux and the GitOps dependency graph
+- External Secrets and runtime Kubernetes Secrets
+- ACME account reuse and wildcard TLS
+- current stateless applications
+
+It does not currently restore:
+
+- old etcd state
+- PVC contents
+- databases
+- application uploads
+- Prometheus history
+- Grafana UI changes not declared in Git
+
+Do not destroy important state until
+[Storage and backups](../../docs/STORAGE-AND-BACKUPS.md) has a tested restore
+for it.
+
+## Proof Record
+
+Before starting, create an operator note containing:
+
+```text
+Date:
+Operator:
+Git commit:
+HCP workspace:
+Start time:
+Reason:
+Expected data loss:
+```
+
+Record every stage start/end, first failure, diagnostic command, mutation, and
+final result. A rebuild is proven only if no undocumented corrective mutation
+is required.
+
+## Phase 0: Destructive Preflight
 
 From the repository root:
 
 ```bash
-cd /home/stoof/GitHub/homelab
-git status
-git pull --rebase origin main
+cd /path/to/homelab
+REPO_ROOT="$(pwd)"
+
+git status --short
+git pull --ff-only origin main
+git rev-parse HEAD
 ```
 
-Confirm:
+Stop if the working tree contains uncommitted desired state or required changes
+have not been pushed.
 
-- The working tree is clean.
-- All desired changes are pushed.
-- The correct HCP Terraform workspace is accessible.
-- `terraform/terraform.tfvars` is available and ignored.
-- Local Ansible inventory and group variables are available and ignored.
-- The controller SSH private key is available.
-- The SOPS age private key is available and backed up.
-- Azure Key Vault still contains the required runtime secrets.
-- Important persistent application data is backed up externally.
-- Router forwarding is documented as `80 -> 192.168.0.52:32492` and `443 -> 192.168.0.52:30860`.
-
-## Verify the SOPS Key Before Destruction
+### Verify Terraform state
 
 ```bash
+cd "$REPO_ROOT/terraform"
+terraform login
+terraform init
+terraform state list
+terraform show
+terraform plan -destroy
+```
+
+Confirm the HCP organization/workspace and exact destroy targets.
+
+### Verify local configuration
+
+```bash
+test -s terraform.tfvars
+git check-ignore -v terraform.tfvars
+
+cd "$REPO_ROOT/ansible"
+ansible-inventory --graph
+test -f inventory/hosts.yml
+test -f inventory/group_vars/all.yml
+```
+
+### Verify SSH recovery
+
+```bash
+test -f "$HOME/.ssh/id_ed25519_sk"
+test -f "$HOME/.ssh/id_ed25519_sk.pub"
+```
+
+Or verify the selected file-backed key.
+
+### Verify SOPS recovery
+
+```bash
+cd "$REPO_ROOT"
 SOPS_KEY_PATH="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
 test -s "$SOPS_KEY_PATH"
 grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH"
-```
 
-Verify it can decrypt the repository bootstrap credential:
-
-```bash
 sops --decrypt \
   kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml \
   >/dev/null
 ```
 
-## Create a Short-Lived GitHub Token
+Confirm a second offline copy exists and has been tested.
 
-A fully destroyed cluster no longer has the Flux SSH deploy key Secret, so a new bootstrap token is required.
+### Verify Azure recovery inputs
 
-Configure the fine-grained token with:
+Expected enabled Key Vault entries:
 
 ```text
-Repository access:  only homelab
-Administration:     Read and write
-Contents:           Read and write
-Metadata:           Read-only
+cloudflare-api-token
+grafana-admin-user
+grafana-admin-password
+letsencrypt-production-account-key
 ```
 
-Do not place the token in a tracked file.
-
-## Destroy and Recreate Virtual Machines
+List names and enabled state without values:
 
 ```bash
-cd terraform
-terraform plan -destroy
+az keyvault secret list \
+  --vault-name kvhomelab91c977 \
+  --query '[].{name:name,enabled:attributes.enabled}' \
+  --output table
+```
+
+### Verify external network configuration
+
+```text
+WAN TCP 80  -> 192.168.0.52:32492
+WAN TCP 443 -> 192.168.0.52:30860
+```
+
+Confirm public DNS and reserve:
+
+```text
+192.168.0.50
+192.168.0.51
+192.168.0.52
+192.168.0.220-192.168.0.229
+```
+
+### Verify application backups
+
+For every stateful application, record:
+
+- latest successful backup time
+- external target
+- most recent restore-test date
+- accepted RPO
+
+If any required check fails, stop. Do not destroy.
+
+## Phase 1: Validate the Desired Commit
+
+```bash
+cd "$REPO_ROOT/terraform"
+terraform fmt -check -recursive
+terraform validate
+
+cd "$REPO_ROOT/ansible"
+ansible-playbook playbooks/system-init.yml --syntax-check
+ansible-playbook playbooks/cluster-bootstrap.yml --syntax-check
+ansible-playbook playbooks/platform-bootstrap.yml --syntax-check
+ansible-lint --profile min playbooks/system-init.yml
+ansible-lint --profile min playbooks/cluster-bootstrap.yml
+ansible-lint --profile min playbooks/platform-bootstrap.yml
+yamllint .
+
+cd "$REPO_ROOT"
+kubectl kustomize kubernetes/infrastructure/controllers/core >/dev/null
+kubectl kustomize kubernetes/infrastructure/controllers/kubelet-csr-approver >/dev/null
+kubectl kustomize kubernetes/infrastructure/controllers/metrics-server >/dev/null
+kubectl kustomize kubernetes/infrastructure/configs >/dev/null
+kubectl kustomize kubernetes/applications/homelab >/dev/null
+```
+
+## Phase 2: Destroy and Recreate VMs
+
+```bash
+cd "$REPO_ROOT/terraform"
 terraform destroy
-terraform apply
+terraform plan -out=tfplan
+terraform apply tfplan
+rm -f ./tfplan
 ```
 
-Wait for cloud-init and SSH availability.
+The explicitly named local plan is no longer needed after apply.
 
-## Stage 1: System Initialization
+Wait for cloud-init, then:
 
 ```bash
-cd ../ansible
+for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+  ping -c 2 "$address"
+done
 ```
 
-Without a YubiKey:
+YubiKey SSH:
+
+```bash
+for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+  ssh -o IdentitiesOnly=yes \
+    -i "$HOME/.ssh/id_ed25519_sk" \
+    "stoof@${address}" true
+done
+```
+
+Do not continue until every node accepts SSH.
+
+## Phase 3: System Initialization
+
+```bash
+cd "$REPO_ROOT/ansible"
+../scripts/ansible-yubikey playbooks/system-init.yml
+```
+
+Or:
 
 ```bash
 ansible-playbook playbooks/system-init.yml
 ```
 
-With YubiKey-backed SSH:
+Require `failed=0` and `unreachable=0`.
 
-```bash
-../scripts/ansible-yubikey playbooks/system-init.yml
-```
-
-## Stage 2: Kubernetes Bootstrap
-
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/cluster-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
+## Phase 4: Kubernetes Bootstrap
 
 ```bash
 ../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
 ```
 
-## Stage 3: Load the GitHub Token
+Or:
 
 ```bash
-read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
-printf '\n'
-export GITHUB_TOKEN
+ansible-playbook playbooks/cluster-bootstrap.yml
 ```
 
-Confirm without printing it:
-
-```bash
-test -n "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN is loaded"
-```
-
-## Stage 4: Platform Bootstrap
-
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/platform-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
-
-```bash
-../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
-```
-
-This stage creates `flux-system/sops-age` automatically before encrypted GitOps resources are reconciled.
-
-Do not manually create the Secret.
-
-## Remove the Token
-
-```bash
-unset GITHUB_TOKEN
-test -z "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN removed from this shell"
-```
-
-Revoke the token in GitHub after the rebuild succeeds or let its short expiration end.
-
-## Pull the Flux Bootstrap Commit
-
-```bash
-cd /home/stoof/GitHub/homelab
-git pull --rebase origin main
-```
-
-## Verify Kubernetes
+Load access:
 
 ```bash
 export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
+chmod 600 "$KUBECONFIG"
+```
 
-kubectl get nodes -o wide
-kubectl get pods -A
+Gate:
+
+```bash
 kubectl get --raw=/readyz
+kubectl get nodes -o wide
+kubectl get pods --namespace kube-system -o wide
 ```
 
-Expected nodes:
+All nodes must be Ready; Cilium and CoreDNS must be healthy.
+
+## Phase 5: Flux Bootstrap
+
+Create a short-lived GitHub fine-grained PAT with:
 
 ```text
-k8s-master-01  Ready
-k8s-worker-01  Ready
-k8s-worker-02  Ready
+Repository:     homelab only
+Administration: Read and write
+Contents:       Read and write
+Metadata:       Read-only
 ```
 
-## Verify Flux and SOPS
+Run:
 
 ```bash
-flux check
-kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A
-kubectl get helmreleases.helm.toolkit.fluxcd.io -A
-kubectl get secret sops-age -n flux-system
+cd "$REPO_ROOT/ansible"
+(
+  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+  printf '\n'
+  export GITHUB_TOKEN
+
+  ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
+)
 ```
 
-Expected Kustomizations:
+Or replace the wrapper with `ansible-playbook`.
+
+The subshell removes the variable. Revoke the token after successful bootstrap
+or let its short expiration end.
+
+Pull the generated Flux commit:
+
+```bash
+cd "$REPO_ROOT"
+git pull --rebase origin main
+```
+
+## Phase 6: Kubernetes and Flux Acceptance
+
+```bash
+kubectl get nodes -o wide
+kubectl get pods --all-namespaces
+kubectl get kustomizations --namespace flux-system
+kubectl get helmreleases --all-namespaces
+```
+
+All six Kustomizations must be `Ready=True`:
 
 ```text
-flux-system                 Ready=True
-infrastructure-controllers  Ready=True
-infrastructure-configs      Ready=True
-applications                Ready=True
+flux-system
+infrastructure-controllers
+infrastructure-configs
+applications
+infrastructure-kubelet-csr-approver
+infrastructure-metrics-server
 ```
 
-## Verify Platform Dependencies
+If a HelmRelease exhausted retries while an earlier dependency was being
+repaired, fix the cause first and then reset only that release:
 
 ```bash
+flux reconcile helmrelease NAME \
+  --namespace NAMESPACE \
+  --reset \
+  --timeout=10m
+```
+
+No reset should be required in a clean rebuild proof.
+
+## Phase 7: Secrets, Certificates, and Metrics
+
+```bash
+kubectl get secret sops-age --namespace flux-system
 kubectl get clustersecretstore
-kubectl get externalsecret -A
+kubectl get externalsecret --all-namespaces
 kubectl get clusterissuer
-kubectl get certificate -A
-kubectl get service traefik -n traefik
+kubectl get certificate --all-namespaces
+kubectl get certificatesigningrequests
+kubectl top nodes
 ```
 
-Confirm Traefik:
+Require:
+
+- `azure-key-vault` Ready
+- every ExternalSecret Ready
+- staging and production issuers Ready
+- wildcard certificate Ready
+- serving CSRs approved by the controller
+- metrics for all three nodes
+
+Do not print Kubernetes Secret `.data`.
+
+## Phase 8: Ingress Acceptance
+
+Verify static service values:
+
+```bash
+kubectl get service traefik \
+  --namespace traefik \
+  --output jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}{range .spec.ports[*]}{.name}{" "}{.nodePort}{"\n"}{end}'
+```
+
+Expected:
 
 ```text
-LoadBalancer IP:    192.168.0.220
-HTTP NodePort:      32492
-HTTPS NodePort:     30860
+192.168.0.220
+web 32492
+websecure 30860
 ```
 
-## Verify Grafana Ingress
-
-MetalLB path:
+Diagnostic LAN route:
 
 ```bash
 curl -vkI \
@@ -217,7 +381,7 @@ curl -vkI \
   https://grafana.mccruden.com
 ```
 
-Master-node NodePort path:
+Diagnostic NodePort route:
 
 ```bash
 curl -vkI \
@@ -225,47 +389,61 @@ curl -vkI \
   https://grafana.mccruden.com:30860
 ```
 
-Public path:
+Final acceptance:
 
 ```bash
-curl -vkI https://grafana.mccruden.com
+curl -fsSI https://grafana.mccruden.com
 ```
 
-## Verify Idempotency
+The final command must succeed without `-k`.
 
-Run all three Ansible stages again without `GITHUB_TOKEN`.
+## Phase 9: Idempotency
 
-Without a YubiKey:
-
-```bash
-cd ansible
-ansible-playbook playbooks/system-init.yml
-ansible-playbook playbooks/cluster-bootstrap.yml
-ansible-playbook playbooks/platform-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
+Run all three playbooks again without `GITHUB_TOKEN`:
 
 ```bash
-cd ansible
+cd "$REPO_ROOT/ansible"
 ../scripts/ansible-yubikey playbooks/system-init.yml
 ../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
 ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
 ```
 
-Expected:
+Require:
 
 ```text
 failed=0
 unreachable=0
 ```
 
-## Rebuild Failure Rule
+Record and explain unexpected repeated changes.
 
-Do not compensate for a failed automated stage with undocumented manual changes.
+## Phase 10: Close the Proof
 
-Use manual commands only to diagnose the failure. Then update Terraform, Ansible, Flux manifests, or the documented external prerequisite so the next full rebuild succeeds without that manual intervention.
+Record:
 
-## Future Complete Recovery
+- final Git commit and Flux applied revision
+- duration of each phase
+- all six Kustomization conditions
+- all HelmRelease conditions
+- public HTTPS result
+- idempotency result
+- actual RTO
+- any lost data and measured RPO
+- every diagnostic command
+- whether any undocumented mutation was required
 
-The final recovery workflow will add a backup stage that reconnects external backup storage, restores persistent data, validates applications, and records RTO and RPO.
+If no durable manual repair was required, tag the commit as rebuild-proven.
+
+If a repair was required:
+
+1. do not call the build proven
+2. identify the correct owner
+3. update Terraform, Ansible, Flux, or the external prerequisite documentation
+4. validate the change
+5. repeat the rebuild proof when safe
+
+## Failure Rule
+
+Manual commands may diagnose a failed stage. They must not become invisible
+prerequisites. The permanent fix belongs in code or in this documented external
+preflight.

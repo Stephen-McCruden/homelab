@@ -1,6 +1,13 @@
-# Homelab Ansible
+# Ansible: Fedora and Kubernetes Bootstrap
 
-This directory contains the three deployment stages used after Terraform provisions the Fedora virtual machines.
+Ansible owns the node operating-system baseline, kubeadm cluster bootstrap,
+Cilium installation, secure kubelet serving certificates, local kubeconfig
+retrieval, Flux bootstrap, and deployment verification.
+
+Run Ansible as the normal controller user. The playbooks request remote
+privilege escalation where required.
+
+## Stages
 
 ```bash
 ansible-playbook playbooks/system-init.yml
@@ -8,13 +15,7 @@ ansible-playbook playbooks/cluster-bootstrap.yml
 ansible-playbook playbooks/platform-bootstrap.yml
 ```
 
-Run Ansible as the normal controller user. The playbooks handle remote privilege escalation.
-
-## YubiKey and Standard SSH
-
-### YubiKey-backed SSH
-
-From `ansible/`:
+YubiKey:
 
 ```bash
 ../scripts/ansible-yubikey playbooks/system-init.yml
@@ -22,79 +23,138 @@ From `ansible/`:
 ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
 ```
 
-The wrapper defaults to:
-
-```text
-~/.ssh/id_ed25519_sk
-```
-
-Override it with:
-
-```bash
-export ANSIBLE_YUBIKEY_PATH="$HOME/.ssh/another-key"
-```
-
-### Standard file-based SSH key
-
-Reference the private key in inventory or group variables, then run normal `ansible-playbook` commands.
-
-See [Controller authentication](../docs/CONTROLLER-AUTHENTICATION.md).
-
 ## Stage Responsibilities
 
 ### `system-init.yml`
 
-- Reconcile replaced VM SSH host keys.
-- Validate inventory, Fedora, and sudo.
-- Control DNF5 transaction races.
-- Install prerequisites, containerd, and Kubernetes packages.
-- Configure kernel modules, sysctls, swap, zram, firewall, SSH hardening, and SELinux compatibility mode.
-- Verify the resulting node state.
+- reconcile host keys after VM replacement
+- validate inventory, Fedora, and passwordless sudo
+- serialize DNF5 transactions
+- configure kernel modules, sysctls, swap, and zram
+- install containerd and Kubernetes packages
+- configure explicit firewalld rules
+- harden SSH
+- set the documented SELinux compatibility state
+- verify the node baseline
 
 ### `cluster-bootstrap.yml`
 
-- Render kubeadm configuration.
-- Initialize the control plane only when required.
-- Join only missing workers.
-- Generate temporary join credentials only when needed.
-- Install Cilium only when absent.
-- Validate the API, nodes, CoreDNS, Cilium, and system Pods.
+- render kubeadm v1beta4 configuration
+- initialize the single control plane only when required
+- retrieve the administrative kubeconfig
+- prepare every node for Cilium
+- join only missing workers with temporary credentials
+- persist and reconcile secure kubelet serving-certificate bootstrap
+- install version-pinned Cilium
+- verify nodes, API, CoreDNS, Cilium, and system Pods
 
 ### `platform-bootstrap.yml`
 
-- Validate the Kubernetes API and administrative kubeconfig.
-- Install and checksum-verify the pinned Flux CLI.
-- Verify the controller-side SOPS age private key.
-- Create the `flux-system` namespace if required.
-- Create or update `flux-system/sops-age` before encrypted reconciliation.
-- Bootstrap Flux against GitHub only when Flux is absent.
-- Validate the generated SSH deploy-key Secret.
-- Wait for Flux controllers, Git source, and every managed Kustomization.
+- validate the API and admin kubeconfig
+- install and checksum-verify the pinned Flux CLI
+- validate the controller SOPS age identity
+- create or update `flux-system/sops-age`
+- bootstrap Flux only when absent
+- verify the generated SSH deploy-key Secret
+- wait for the Git source and all six managed Kustomizations
+- run the final Flux health check
 
-## First Platform Bootstrap Environment
+## Inventory
 
-The GitHub token is required only for a new Flux bootstrap.
+Reference files are intentionally tracked:
 
-```bash
-read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
-printf '\n'
-export GITHUB_TOKEN
+```text
+inventory/hosts.yml
+inventory/group_vars/all.yml
 ```
 
-Optional SOPS key override:
+They contain topology and local paths, not secret values. A reproducer should
+adapt them and use the `*.example` files as a checklist.
 
 ```bash
-export SOPS_AGE_KEY_FILE="/secure/path/keys.txt"
+ansible-inventory --graph
+ansible-inventory --host k8s-master-01
 ```
 
-After the bootstrap:
+## Validation
 
 ```bash
-unset GITHUB_TOKEN
-unset SOPS_AGE_KEY_FILE
+ansible-playbook playbooks/system-init.yml --syntax-check
+ansible-playbook playbooks/cluster-bootstrap.yml --syntax-check
+ansible-playbook playbooks/platform-bootstrap.yml --syntax-check
+
+ansible-lint --profile min playbooks/system-init.yml
+ansible-lint --profile min playbooks/cluster-bootstrap.yml
+ansible-lint --profile min playbooks/platform-bootstrap.yml
+
+yamllint .
 ```
 
-Do not save a real GitHub token in the tracked `platform-bootstrap.env.example` file.
+The minimum lint profile currently passes. Newer default/strict profiles also
+report existing style debt in older roles: role-variable prefixes, two
+reload-as-handler suggestions, and `run_once` strategy warnings. Resolve those
+in a dedicated role refactor rather than mixing behavioral changes into a
+rebuild or documentation update.
+
+## First Platform Bootstrap
+
+```bash
+(
+  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+  printf '\n'
+  export GITHUB_TOKEN
+
+  ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
+)
+```
+
+The token is unnecessary on healthy later runs. The SOPS identity remains
+required because the playbook verifies and enforces the bootstrap Secret.
+
+## Idempotency Contract
+
+Every successful playbook must be safe to run again:
+
+```text
+failed=0
+unreachable=0
+```
+
+Expected state-aware behavior:
+
+- kubeadm init is skipped on an initialized control plane
+- joined workers are not rejoined
+- an unused join token is not generated
+- Cilium is not reinstalled unnecessarily
+- Flux is not bootstrapped again
+- the SOPS Secret is reconciled without exposing its value
+- health validation always runs
+
+Investigate unexplained repeated changes.
+
+## Kubeconfig
+
+Expected controller path:
+
+```text
+~/.kube/homelab-admin.conf
+```
+
+```bash
+chmod 600 "$HOME/.kube/homelab-admin.conf"
+export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
+```
+
+## Security Decisions
+
+- package signature verification remains enabled
+- SSH password authentication is disabled only after key validation
+- firewall sources and ports are explicit
+- kubeadm join credentials are short-lived and generated only when needed
+- kubelet serving certificates use normal CA validation
+- the GitHub PAT is temporary; Flux later uses a read-only deploy key
+- the SOPS identity remains outside Git and is transferred temporarily
+- SELinux remains enabled but permissive until the blocking policy is resolved
 
 ## Procedures
 
@@ -102,58 +162,4 @@ Do not save a real GitHub token in the tracked `platform-bootstrap.env.example` 
 - [Cluster bootstrap](procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md)
 - [Platform bootstrap](procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md)
 - [Full rebuild](procedures/FULL-REBUILD-PROCEDURE.md)
-
-## Validation
-
-```bash
-cd ansible
-ansible-inventory --graph
-
-ansible-playbook playbooks/system-init.yml --syntax-check
-ansible-playbook playbooks/cluster-bootstrap.yml --syntax-check
-ansible-playbook playbooks/platform-bootstrap.yml --syntax-check
-
-ansible-lint playbooks/system-init.yml
-ansible-lint playbooks/cluster-bootstrap.yml
-ansible-lint playbooks/platform-bootstrap.yml
-
-yamllint .
-```
-
-## Runtime Idempotency
-
-Run each playbook a second time after a successful deployment.
-
-A healthy run should report:
-
-```text
-failed=0
-unreachable=0
-```
-
-Most state-enforcement tasks should report `ok`. Review any unexpected changes rather than treating every nonzero changed count as acceptable.
-
-## Kubeconfig
-
-Local administrative kubeconfig:
-
-```text
-~/.kube/homelab-admin.conf
-```
-
-```bash
-export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
-```
-
-Protect it with mode `0600` and do not commit it.
-
-## Security Decisions
-
-- Package GPG verification remains enabled.
-- SSH password authentication is disabled only after key verification.
-- Firewall access is source restricted.
-- kubeadm join credentials are temporary.
-- The GitHub PAT is used only for initial Flux bootstrap.
-- Flux uses a generated read-only SSH deploy key after bootstrap.
-- The SOPS age private key remains outside Git and is copied to the control-plane node only temporarily.
-- SELinux permissive mode is a documented Fedora compatibility workaround.
+- [Troubleshooting](../docs/TROUBLESHOOTING.md)

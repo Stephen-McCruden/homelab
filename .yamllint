@@ -1,0 +1,11 @@
+---
+extends: default
+
+ignore: |
+  clusters/homelab/flux-system/
+  kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml
+
+rules:
+  empty-lines:
+    max-end: 1
+  line-length: disable

@@ -1,128 +1,169 @@
-# Environment Setup and External Prerequisites
+# Environment Setup
 
-This guide lists the infrastructure and controller requirements that must exist before the repository can deploy the Kubernetes platform.
+This document lists everything that must exist outside the repository before a
+first deployment or a full rebuild. It is a prerequisite checklist, not an
+installation guide for Proxmox, Cloudflare, Azure, GitHub, or HCP Terraform.
 
-It is not a complete Proxmox, network, Tailscale, GitHub, Azure, or HCP Terraform installation guide.
+## External Dependency Inventory
 
-## Reference Topology
+| Dependency | Used for | Required during rebuild |
+|---|---|---:|
+| Three-node Proxmox VE cluster | VM compute and storage | Yes |
+| LAN gateway and DNS | Node routing and name resolution | Yes |
+| Router or firewall | Public TCP 80/443 forwarding | For public access |
+| HCP Terraform | Terraform state | Yes |
+| GitHub repository | Desired state and Flux bootstrap | Yes |
+| Cloudflare DNS | Public records and ACME DNS-01 | Yes |
+| Azure Key Vault | Runtime secret recovery | Yes |
+| SOPS age identity | Decrypt Azure bootstrap credential | Yes |
+| Operator SSH key | Ansible access | Yes |
+| Short-lived GitHub token | First Flux bootstrap | Yes |
+
+Record provider account recovery and MFA information separately from this
+public repository.
+
+## Reference Values
 
 ```text
-pve1 -> k8s-worker-01  192.168.0.50
-pve2 -> k8s-worker-02  192.168.0.51
-pve3 -> k8s-master-01  192.168.0.52
+LAN CIDR                  192.168.0.0/24
+Gateway and primary DNS   192.168.0.1
+Secondary DNS             1.1.1.1
+
+k8s-worker-01             192.168.0.50/24
+k8s-worker-02             192.168.0.51/24
+k8s-master-01             192.168.0.52/24
+
+MetalLB pool              192.168.0.220-192.168.0.229
+Traefik VIP               192.168.0.220
+Traefik HTTP NodePort     32492
+Traefik HTTPS NodePort    30860
 ```
 
-Shared network values:
+Reserve node and MetalLB addresses outside the DHCP pool.
 
-```text
-Default gateway       192.168.0.1
-Traefik MetalLB VIP   192.168.0.220
-Traefik HTTP NodePort 32492
-Traefik HTTPS NodePort 30860
-```
+## Proxmox
 
-## Proxmox Requirements
+Before Terraform runs, confirm:
 
-Before running Terraform, verify:
+- the Proxmox cluster has quorum
+- `pve1`, `pve2`, and `pve3` are online
+- the configured import datastore exists on every target node
+- the VM datastore exists on every target node
+- the configured Linux bridge exists on every target node
+- VM IDs `150`, `151`, and `152` are unused or intentionally managed by this
+  workspace
+- the controller can reach TCP `8006`
+- the provider's SSH block can reach each Proxmox host as `root`
+- time synchronization is healthy
+
+Useful checks on a Proxmox member:
 
 ```bash
 pvecm status
+pvesm status
+ip link show
+timedatectl
 ```
 
-The Proxmox cluster must have quorum. Also confirm:
+### Automation identity
 
-- All three Proxmox nodes are online.
-- The image/import datastore exists on every node that downloads the Fedora image.
-- The VM disk datastore exists on every target node.
-- The configured Linux bridge exists on every target node.
-- The selected VM IDs are unused.
-- The Proxmox API is reachable from the Terraform controller.
-- Time synchronization is working on all Proxmox nodes.
-
-## Proxmox API Identity
-
-Use a dedicated automation identity instead of `root@pam` credentials.
-
-A typical token ID is:
+Use a dedicated API user and token, for example:
 
 ```text
 terraform-user@pve!homelab
 ```
 
-For initial lab deployment, a dedicated user or token with the built-in `PVEAdmin` role at `/` is simple and testable. It is broader than least privilege. Once the full plan, apply, and destroy workflow is stable, replace it with a custom role containing only the required privileges.
+The current lab may use a broad built-in role while the workflow is being
+proven. A production-quality reproduction should create and test a least-
+privilege role. When token privilege separation is enabled, both the user and
+token ACLs must permit the provider's operations.
 
-When token privilege separation is enabled, verify that the token itself has the ACL required by the provider.
+### TLS
 
-## Proxmox TLS
+`proxmox_insecure = true` accepts the Proxmox API certificate without normal
+verification. This is a bootstrap convenience, not the target security state.
+Install a trusted certificate and change the variable to `false` when practical.
 
-The current example uses:
+## Network and DNS
 
-```hcl
-proxmox_insecure = true
+Every Fedora VM needs:
+
+- its configured static address
+- a reachable default gateway
+- working DNS resolution
+- outbound HTTPS for Fedora packages, container images, GitHub, Helm
+  repositories, Azure, and ACME
+- TCP `22` from the Ansible controller
+- unrestricted required Kubernetes and Cilium traffic between cluster nodes
+
+Terraform currently supplies DNS through cloud-init:
+
+```text
+192.168.0.1
+1.1.1.1
 ```
 
-This accepts the Proxmox certificate without normal trust validation. A stronger setup installs a trusted certificate and sets the value to `false`.
+After Terraform creates a VM, verify from the VM:
 
-## Network Requirements
+```bash
+ip address
+ip route
+resolvectl status
+getent hosts registry.k8s.io
+curl -fsSI https://registry.k8s.io
+```
 
-The Kubernetes VMs require:
+If any subnet changes, update all of these together:
 
-- Static IPv4 addresses.
-- A reachable default gateway.
-- Working DNS resolution.
-- Internet access for Fedora packages, container images, Helm repositories, GitHub, and certificate issuance.
-- TCP 22 from the Ansible controller.
-- Kubernetes control-plane and kubelet traffic between nodes.
-- Cilium traffic between nodes.
-- Access from the router to the selected Traefik NodePort target node.
+- Terraform node addresses, gateway, and DNS
+- Ansible inventory and management CIDRs
+- kubeadm control-plane endpoint
+- kubelet CSR approver IP prefixes
+- MetalLB pool
+- Traefik VIP
+- router forwarding
+- split DNS or internal DNS overrides
 
-If the subnet changes, update all of the following:
+## Router and Public DNS
 
-- Terraform node addresses and gateway.
-- Ansible inventory.
-- Ansible group variables and firewall source networks.
-- MetalLB address pool.
-- Router port forwards.
-- Internal DNS overrides, if used.
-
-## Router Port Forwards
-
-The current router forwards to the control-plane node because the router does not accept the MetalLB virtual IP as a forwarding target.
+Reference router rules:
 
 ```text
 WAN TCP 80  -> 192.168.0.52 TCP 32492
 WAN TCP 443 -> 192.168.0.52 TCP 30860
 ```
 
-Traefik uses `externalTrafficPolicy: Cluster`, allowing traffic received by the master node's NodePort to be forwarded to a Traefik Pod on another Kubernetes node.
+Create Cloudflare DNS records for each public hostname. For the current direct
+port-forward design, the record resolves to the home public address.
 
-The NodePorts must remain pinned in the Traefik HelmRelease. Do not rely on automatically allocated NodePorts during a rebuild.
+Before relying on inbound hosting, confirm:
 
-## DNS Requirements
+- the ISP does not block inbound TCP 80/443
+- the connection is not behind carrier-grade NAT
+- dynamic public IP changes are handled
+- Cloudflare proxy mode matches the intended origin design
+- NAT reflection or split DNS supports testing from inside the LAN
 
-Public records such as `grafana.mccruden.com` must resolve to the router's public address unless Cloudflare proxying or another ingress design is intentionally used.
-
-A wildcard certificate does not create DNS records. DNS, router forwarding, Traefik routing, and certificate issuance are separate parts of the request path.
-
-See [Ingress, DNS, and TLS](INGRESS-DNS-AND-TLS.md).
+The wildcard certificate does not create DNS records.
 
 ## Controller Workstation
 
 Required tools:
 
 - Git
-- OpenSSH client
+- OpenSSH client with FIDO2 support when using a YubiKey
 - Terraform
 - Python 3
-- Ansible Core
+- Ansible Core 2.16 or newer
 - `ansible-lint`
 - `yamllint`
 - `kubectl`
-- Flux CLI for local convenience, or SSH access to the control-plane copy installed by Ansible
-- A private SSH key matching the public key injected by Terraform
-- The SOPS age private key used for encrypted repository files
+- SOPS and age
+- Flux CLI for operator convenience
+- `jq`
+- a DNS client such as `dig`
 
-Useful checks:
+Check:
 
 ```bash
 git --version
@@ -133,80 +174,55 @@ ansible --version
 ansible-lint --version
 yamllint --version
 kubectl version --client
+sops --version
+age --version
+flux version --client
+jq --version
 ```
 
-## SSH Authentication Options
-
-### YubiKey-backed SSH
-
-The repository includes `scripts/ansible-yubikey`. It forces Ansible to use a FIDO2 SSH key directly and disables the SSH agent for that run.
-
-Default key path:
-
-```text
-~/.ssh/id_ed25519_sk
-```
-
-Override it with:
-
-```bash
-export ANSIBLE_YUBIKEY_PATH="$HOME/.ssh/another-security-key"
-```
-
-Run playbooks from the repository with:
-
-```bash
-../scripts/ansible-yubikey playbooks/system-init.yml
-```
-
-A PIN prompt or physical touch may be required depending on the SSH key configuration.
-
-### Standard file-based SSH key
-
-A user without a YubiKey can use a normal OpenSSH private key such as:
-
-```text
-~/.ssh/id_ed25519
-```
-
-Reference that key in Ansible inventory or group variables and run:
-
-```bash
-ansible-playbook playbooks/system-init.yml
-```
-
-Protect the private key:
-
-```bash
-chmod 600 ~/.ssh/id_ed25519
-```
-
-The YubiKey wrapper changes only the SSH connection used by Ansible. It does not change the GitHub token or SOPS workflow.
-
-See [Controller authentication](CONTROLLER-AUTHENTICATION.md).
+The Ansible controller needs a private SSH identity matching a public key
+injected by Terraform. See
+[Controller authentication](CONTROLLER-AUTHENTICATION.md).
 
 ## HCP Terraform
 
-The Terraform configuration contains an HCP Terraform `cloud` block. Configure the correct organization and workspace, then authenticate:
+The HCP organization and workspace are declared in `terraform/main.tf`:
 
-```bash
-terraform login
+```text
+Organization: stoof-homelab
+Workspace:    stoof-lab
 ```
 
-Use a CLI-driven workspace when plans and applies are initiated locally.
+A reproducer must replace them with an existing CLI-driven workspace.
+
+Authenticate and initialize:
+
+```bash
+cd terraform
+terraform login
+terraform init
+```
+
+Confirm the correct workspace before any destructive operation:
+
+```bash
+terraform state list
+terraform show
+```
 
 ## GitHub and Flux
 
-The first Flux bootstrap of a replacement cluster uses a GitHub fine-grained personal access token.
-
-The current Ansible role runs Flux with SSH deploy-key authentication:
+Flux follows:
 
 ```text
---token-auth=false
---read-write-key=false
+Owner:      Stephen-McCruden
+Repository: homelab
+Branch:     main
+Path:       clusters/homelab
 ```
 
-Create the token with access limited to the homelab repository and these repository permissions:
+For a completely new cluster, create a short-lived fine-grained personal
+access token scoped only to this repository:
 
 ```text
 Administration: Read and write
@@ -214,56 +230,98 @@ Contents:       Read and write
 Metadata:       Read-only
 ```
 
-Administration must be read/write because Flux creates the repository deploy key when `--token-auth=false` is used.
+Administration access is required because Flux creates an SSH deploy key.
+After bootstrap, Flux reads the repository with the generated read-only deploy
+key and the personal token is no longer required.
 
-Use a short expiration. The token is needed only during a new bootstrap. Flux uses the generated read-only SSH deploy key afterward.
+## SOPS Recovery Identity
 
-## SOPS Age Key
-
-The Ansible controller must have the age private key used by `.sops.yaml`.
-
-Default path:
+Required default path:
 
 ```text
 ~/.config/sops/age/keys.txt
 ```
 
-Optional override:
+Validate without printing it:
 
 ```bash
-export SOPS_AGE_KEY_FILE="/secure/path/keys.txt"
+SOPS_KEY_PATH="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+test -s "$SOPS_KEY_PATH"
+grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH"
+
+sops --decrypt \
+  kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml \
+  >/dev/null
 ```
 
-Validate the file without printing the private key:
+Keep at least two tested offline copies. The Kubernetes Secret is not a backup
+of the recovery identity.
+
+## Azure Key Vault
+
+The reference configuration expects:
+
+```text
+Vault URL:
+https://kvhomelab91c977.vault.azure.net/
+
+Required secret names:
+cloudflare-api-token
+grafana-admin-user
+grafana-admin-password
+letsencrypt-production-account-key
+```
+
+The SOPS-encrypted `azure-keyvault-bootstrap` Secret contains the service
+principal identity used by External Secrets Operator. That identity needs only
+the permissions required to read the referenced secrets.
+
+Verify names and enabled state without returning values:
 
 ```bash
-test -s "${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}" \
-  && echo "SOPS age key file found"
-
-grep -q '^AGE-SECRET-KEY-' \
-  "${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}" \
-  && echo "SOPS age identity found"
+az keyvault secret list \
+  --vault-name kvhomelab91c977 \
+  --query '[].{name:name,enabled:attributes.enabled}' \
+  --output table
 ```
 
-The key must be backed up outside both Git and the Kubernetes cluster.
+Do not use a command that prints secret values in terminal output or
+documentation.
 
-## Azure Key Vault and External Secrets
+## Cloudflare
 
-The current platform expects:
+The Key Vault entry `cloudflare-api-token` must contain a token capable of
+editing DNS records for the certificate zone. Scope it to the required zone and
+the minimum DNS permission.
 
-- An Azure Key Vault containing the application and platform secrets referenced by ExternalSecret resources.
-- Azure credentials encrypted with SOPS in the repository.
-- A working ClusterSecretStore after decryption.
-- A Cloudflare API token in Azure Key Vault for cert-manager DNS-01 operations.
-- Grafana administrative credentials in Azure Key Vault.
+Public records for applications are managed separately from ACME. At minimum,
+plan records for:
 
-The exact secret names must match the ExternalSecret manifests under `kubernetes/infrastructure/configs/external-secrets/`.
+```text
+grafana.mccruden.com
+www.mccruden.com
+mccruden.com
+```
 
-## Remote Access
+Private applications such as Homepage and Linkding should initially use LAN
+DNS or Tailscale access rather than public exposure.
 
-The reference environment uses Tailscale for remote access. Local LAN access is sufficient for deployment. This repository does not install or manage Tailscale.
+## Final Preflight Checklist
 
-## Official References
+Run this checklist immediately before a new deployment:
 
-- [Flux bootstrap for GitHub](https://fluxcd.io/flux/installation/bootstrap/github/)
-- [GitHub personal access token management](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+- [ ] Proxmox has quorum and all target nodes are online.
+- [ ] Target datastores, bridges, and VM IDs are correct.
+- [ ] Node and MetalLB addresses are reserved.
+- [ ] Controller tools are installed.
+- [ ] HCP Terraform login and workspace are correct.
+- [ ] `terraform/terraform.tfvars` exists and is ignored.
+- [ ] The SSH private identity and matching public key are available.
+- [ ] The SOPS identity exists, is backed up, and decrypts the manifest.
+- [ ] Azure Key Vault contains all four required values.
+- [ ] A short-lived GitHub token can be created.
+- [ ] Cloudflare DNS and API access are available.
+- [ ] Router rules are documented.
+- [ ] Any important application data has an external backup.
+
+Continue with [Configuration and secrets](CONFIGURATION-AND-SECRETS.md).

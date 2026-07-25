@@ -30,7 +30,7 @@ kubeadm_config_file_path: /etc/kubernetes/kubeadm-init.yaml
 kubeconfig_admin_user: stoof
 kubeconfig_admin_group: stoof
 kubeconfig_admin_home: /home/stoof
-kubeconfig_controller_path: /home/stoof/.kube/config.conf
+kubeconfig_controller_path: /home/stoof/.kube/homelab-admin.conf
 
 # Cilium networking
 cilium_version: "1.19.5"

@@ -1,46 +1,65 @@
 # Ansible File Map
 
-## Controller Configuration
+## Controller
 
-- `ansible.cfg` - Ansible controller defaults.
-- `inventory/hosts.yml` - Local inventory with real node values.
-- `inventory/hosts.yml.example` - Safe inventory template.
-- `inventory/group_vars/all.yml` - Local shared variables.
-- `inventory/group_vars/all.yml.example` - Safe shared-variable template.
-- `platform-bootstrap.env.example` - Documentation-only environment variable template. It must not contain a real token.
+| Path | Purpose |
+|---|---|
+| `ansible.cfg` | Inventory, role path, SSH, and privilege-escalation defaults |
+| `inventory/hosts.yml` | Reference control-plane and worker topology |
+| `inventory/group_vars/all.yml` | Shared reference-environment variables |
+| `inventory/*.example` | Reproducer templates |
+| `platform-bootstrap.env.example` | Environment-variable names only; never store a real token |
+| `scripts/reconcile-known-host.sh` | Reconcile ephemeral VM SSH host keys |
+| `../scripts/ansible-yubikey` | Run playbooks with a FIDO2 identity and predictable prompts |
 
 ## Playbooks
 
-- `playbooks/system-init.yml` - Fedora and Kubernetes node baseline.
-- `playbooks/cluster-bootstrap.yml` - kubeadm, worker join, Cilium, and cluster verification.
-- `playbooks/platform-bootstrap.yml` - SOPS Secret creation, Flux bootstrap, and reconciliation verification.
+| Path | Purpose |
+|---|---|
+| `playbooks/system-init.yml` | Fedora baseline and hardening |
+| `playbooks/cluster-bootstrap.yml` | kubeadm, worker joins, kubelet TLS, Cilium, and cluster validation |
+| `playbooks/platform-bootstrap.yml` | SOPS bootstrap Secret, Flux bootstrap, and GitOps validation |
 
-## Roles
+## Node Baseline Roles
 
-- `roles/package_manager/` - Serialized DNF5 transactions and bounded recovery.
-- `roles/prereqs/` - Kernel modules, sysctls, swap, zram, and prerequisites.
-- `roles/container_runtime/` - containerd 2.x configuration.
-- `roles/kubernetes_node/` - Kubernetes repository and packages.
-- `roles/firewall/` - Source-restricted firewalld configuration.
-- `roles/hardening/` - SSH and SELinux baseline.
-- `roles/verification/` - Node baseline end-state checks.
-- `roles/kubeadm_config/` - kubeadm configuration rendering.
-- `roles/control_plane/` - Control-plane initialization and API readiness.
-- `roles/kubeconfig/` - Administrative kubeconfig retrieval.
-- `roles/worker_join/` - State-aware worker joining.
-- `roles/cilium_node/` - Node-level Cilium prerequisites.
-- `roles/cilium/` - Cilium installation and validation.
-- `roles/cluster_verification/` - Kubernetes cluster end-state checks.
-- `roles/flux_bootstrap/` - Flux CLI installation, SOPS age Secret automation, GitHub bootstrap, and GitOps validation.
+| Role | Purpose |
+|---|---|
+| `package_manager` | Serialize DNF5 operations and perform bounded recovery |
+| `prereqs` | Packages, kernel modules, sysctls, swap, and zram |
+| `container_runtime` | containerd 2.x with systemd cgroups |
+| `kubernetes_node` | Kubernetes repository and packages |
+| `firewall` | Source- and port-restricted firewalld configuration |
+| `hardening` | SSH and SELinux compatibility state |
+| `verification` | Baseline end-state assertions |
+
+## Kubernetes Bootstrap Roles
+
+| Role | Purpose |
+|---|---|
+| `kubeadm_config` | Render and validate kubeadm configuration |
+| `control_plane` | Initialize or verify the control plane |
+| `kubeconfig` | Install node-local config and retrieve the controller copy |
+| `cilium_node` | Node prerequisites for Cilium |
+| `worker_join` | Detect and join only uninitialized workers |
+| `kubelet_serving_certificates` | Persist `serverTLSBootstrap`, reconcile every kubelet, and verify TCP `10250` |
+| `cilium` | Install the pinned Cilium release and validate it |
+| `cluster_verification` | Assert nodes, API, CoreDNS, Cilium, and system workload health |
+
+## Platform Role
+
+| Role | Purpose |
+|---|---|
+| `flux_bootstrap` | Install Flux CLI, provision `sops-age`, bootstrap GitHub, and wait for all six Kustomizations |
 
 ## Procedures
 
-- `procedures/SYSTEM-INIT-PROCEDURE.md` - Node baseline operating procedure.
-- `procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md` - Kubernetes bootstrap procedure.
-- `procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md` - Flux, token, and SOPS procedure.
-- `procedures/FULL-REBUILD-PROCEDURE.md` - End-to-end replacement procedure.
+| Path | Purpose |
+|---|---|
+| `procedures/SYSTEM-INIT-PROCEDURE.md` | Fedora stage runbook |
+| `procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md` | Kubernetes stage runbook |
+| `procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md` | Flux stage runbook |
+| `procedures/FULL-REBUILD-PROCEDURE.md` | Canonical destruction-to-acceptance runbook |
 
-## Repository-Level Scripts Used by Ansible
-
-- `../scripts/reconcile-known-host.sh` - Reconciles SSH host keys after Terraform replaces VMs.
-- `../scripts/ansible-yubikey` - Runs Ansible with a FIDO2/YubiKey-backed SSH identity.
+Files ending in `.backup` are historical working residue and are not loaded by
+Ansible. Remove them in a separate repository-cleanup change after confirming
+that Git history contains the desired versions.

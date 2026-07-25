@@ -1,157 +1,112 @@
 # Configuration and Secrets
 
-This repository is public. Real credentials, private keys, recovery material, kubeconfigs, and unencrypted secret values must not be committed.
+The repository is public. It may contain topology, usernames, public keys,
+public SOPS recipients, and encrypted SOPS documents. It must not contain
+passwords, tokens, private keys, kubeconfigs, unencrypted recovery material, or
+secret values copied from Kubernetes.
 
-## Tracked Examples
+## Configuration Model
 
-The following files can be committed because they contain placeholders or documentation only:
+| Configuration | Tracked | Contains secrets |
+|---|---:|---:|
+| `terraform/terraform.tfvars.example` | Yes | Placeholders only |
+| `terraform/terraform.tfvars` | No | Yes |
+| `ansible/inventory/hosts.yml` | Yes | No |
+| `ansible/inventory/group_vars/all.yml` | Yes | No |
+| Ansible `*.example` files | Yes | No |
+| `.sops.yaml` | Yes | Public age recipient only |
+| `azure-credentials.sops.yaml` | Yes | Encrypted values |
+| `ansible/platform-bootstrap.env.example` | Yes | Placeholders only |
+| SOPS age identity | No | Yes |
+| Administrative kubeconfig | No | Yes |
 
-```text
-terraform/terraform.tfvars.example
-ansible/inventory/hosts.yml.example
-ansible/inventory/group_vars/all.yml.example
-ansible/platform-bootstrap.env.example
+The reference inventory is intentionally tracked because it documents the
+reproducible topology. A reproducer may either replace it in a fork or maintain
+environment overlays, but should not pretend that the current `.yml` files are
+ignored.
+
+## Credential Inventory
+
+| Credential | Normal location | Consumer | Recovery requirement |
+|---|---|---|---|
+| Proxmox API token | local `terraform.tfvars` | Terraform | Password manager or secure backup |
+| Proxmox root SSH access | local SSH configuration | Terraform provider | Proxmox recovery process |
+| Node SSH key | YubiKey or controller file | Ansible | Spare key and authorized public key |
+| GitHub bootstrap PAT | temporary shell environment | Flux bootstrap | Recreate when needed |
+| Flux deploy key | `flux-system/flux-system` Secret | Flux | Recreated by bootstrap |
+| SOPS age identity | `~/.config/sops/age/keys.txt` | Ansible and SOPS | Two tested offline copies |
+| Azure service principal | SOPS-encrypted manifest | External Secrets | Azure identity recovery |
+| Runtime application secrets | Azure Key Vault | External Secrets | Azure backup/recovery |
+| Kubernetes admin kubeconfig | `~/.kube/homelab-admin.conf` | Operator | Recreated by Ansible |
+
+## Terraform Variables
+
+Create the local file:
+
+```bash
+cd terraform
+cp -n terraform.tfvars.example terraform.tfvars
+chmod 600 terraform.tfvars
+git check-ignore -v terraform.tfvars
 ```
 
-## Local Files
+Replace every placeholder. Never place a private SSH key in this file; only
+complete public OpenSSH key lines belong in `ssh_public_keys`.
 
-The following files normally contain environment-specific values and should remain outside Git:
+Review configuration without printing sensitive values:
+
+```bash
+terraform fmt -recursive
+terraform validate
+terraform plan
+```
+
+Avoid `terraform output -json` or state inspection in shared terminal output.
+Terraform state can contain sensitive input values even when the CLI redacts
+them.
+
+## Ansible Inventory
+
+The tracked reference files are:
 
 ```text
-terraform/terraform.tfvars
 ansible/inventory/hosts.yml
 ansible/inventory/group_vars/all.yml
-ansible/platform-bootstrap.env
 ```
 
-The following sensitive files are stored outside the repository:
+They contain:
+
+- node names and addresses
+- controller username and local private-key path
+- cluster and management CIDRs
+- Kubernetes and Cilium versions
+- kubeadm endpoint and network values
+- kubeconfig destination
+
+They must not contain a private key or password. Validate the effective
+inventory:
+
+```bash
+cd ansible
+ansible-inventory --graph
+ansible-inventory --host k8s-master-01
+```
+
+The example files show which values a reproducer must adapt.
+
+## GitHub Bootstrap Token
+
+Create a fine-grained PAT with:
 
 ```text
-~/.ssh/id_ed25519
-~/.ssh/id_ed25519_sk
-~/.config/sops/age/keys.txt
-~/.kube/homelab-admin.conf
+Repository access: homelab only
+Administration:    Read and write
+Contents:          Read and write
+Metadata:          Read-only
+Expiration:        Short
 ```
 
-## Required Git Ignore Entries
-
-Confirm the repository ignores local secret-bearing files. At minimum:
-
-```gitignore
-terraform/terraform.tfvars
-ansible/inventory/hosts.yml
-ansible/inventory/group_vars/all.yml
-ansible/platform-bootstrap.env
-```
-
-Verify each local file:
-
-```bash
-git check-ignore -v terraform/terraform.tfvars
-git check-ignore -v ansible/inventory/hosts.yml
-git check-ignore -v ansible/inventory/group_vars/all.yml
-```
-
-If a local `ansible/platform-bootstrap.env` file is used:
-
-```bash
-git check-ignore -v ansible/platform-bootstrap.env
-```
-
-## Should a Real Environment File Be Created?
-
-A tracked example file is useful. A persistent plaintext file containing the GitHub token is not recommended.
-
-Recommended approach:
-
-- Keep `ansible/platform-bootstrap.env.example` in Git.
-- Load `GITHUB_TOKEN` interactively or from a password manager.
-- Use `SOPS_AGE_KEY_FILE` only when the age key is not at the default path.
-- Unset temporary environment variables after the command.
-
-A local `ansible/platform-bootstrap.env` can be used if required, but it must be ignored, mode `0600`, and treated as a secret file. Do not leave a long-lived GitHub token in it.
-
-## Platform Bootstrap Environment Variables
-
-| Variable | Required | Purpose |
-|---|---:|---|
-| `GITHUB_TOKEN` | First Flux bootstrap only | Allows Flux to commit bootstrap manifests and create the GitHub deploy key. |
-| `SOPS_AGE_KEY_FILE` | Optional | Overrides the default SOPS age key path. |
-| `ANSIBLE_YUBIKEY_PATH` | Optional | Overrides the YubiKey-backed SSH key path used by the wrapper. |
-| `SSH_ASKPASS` | Optional | Overrides the askpass executable used by the YubiKey wrapper. |
-| `KUBECONFIG` | Optional for local commands | Selects the local administrative kubeconfig. |
-
-The Ansible role reads `GITHUB_TOKEN` and `SOPS_AGE_KEY_FILE` from the controller environment.
-
-## GitHub Fine-Grained Token
-
-The current bootstrap uses:
-
-```text
---token-auth=false
---read-write-key=false
-```
-
-Create a fine-grained personal access token with:
-
-```text
-Resource owner:     the account that owns the repository
-Repository access:  only the homelab repository
-Administration:     Read and write
-Contents:           Read and write
-Metadata:           Read-only
-```
-
-Use a short expiration.
-
-### Load interactively
-
-```bash
-read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
-printf '\n'
-export GITHUB_TOKEN
-```
-
-Confirm it is set without printing it:
-
-```bash
-test -n "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN is loaded"
-```
-
-Optional API validation:
-
-```bash
-curl --fail --silent --show-error \
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  https://api.github.com/user \
-  >/dev/null
-```
-
-### Remove it
-
-```bash
-unset GITHUB_TOKEN
-test -z "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN removed from this shell"
-```
-
-This removes the variable from the current shell only. Revoke the token separately in GitHub when it is no longer needed.
-
-### Safer one-command scope
-
-Use a subshell so the token cannot remain in the parent shell:
-
-```bash
-(
-  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
-  printf '\n'
-  export GITHUB_TOKEN
-
-  ansible-playbook playbooks/platform-bootstrap.yml
-)
-```
-
-YubiKey SSH version:
+Use a subshell so it does not remain in the parent shell:
 
 ```bash
 (
@@ -163,9 +118,24 @@ YubiKey SSH version:
 )
 ```
 
-## SOPS Age Private Key
+For a file-backed SSH key:
 
-Default path:
+```bash
+(
+  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+  printf '\n'
+  export GITHUB_TOKEN
+
+  ansible-playbook playbooks/platform-bootstrap.yml
+)
+```
+
+Never print the variable. Revoke the token after a successful bootstrap or let
+its short expiration end.
+
+## SOPS Age Identity
+
+Default:
 
 ```text
 ~/.config/sops/age/keys.txt
@@ -177,49 +147,43 @@ Optional override:
 export SOPS_AGE_KEY_FILE="/secure/path/keys.txt"
 ```
 
-Validate without displaying the private key:
+Safe validation:
 
 ```bash
 SOPS_KEY_PATH="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+test -s "$SOPS_KEY_PATH"
+grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH"
 
-test -s "$SOPS_KEY_PATH" \
-  && echo "SOPS age key file found"
-
-grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH" \
-  && echo "SOPS age identity found"
+sops --decrypt \
+  kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml \
+  >/dev/null
 ```
 
-Remove an override when finished:
+`.sops.yaml` contains the public recipient and is safe to commit. The identity
+line beginning with `AGE-SECRET-KEY-` is private.
 
-```bash
-unset SOPS_AGE_KEY_FILE
-```
+## Flux SOPS Bootstrap
 
-The key file itself is not deleted by `unset`.
-
-## Automated SOPS Secret Creation
-
-During `platform-bootstrap.yml`, Ansible now performs this sequence:
+`platform-bootstrap.yml` performs:
 
 ```text
-Verify the age private key exists on the controller
-    -> create flux-system namespace if needed
-    -> copy the key temporarily to the control-plane node
-    -> create or update flux-system/sops-age
-    -> remove the temporary control-plane file
-    -> verify the Secret contains age.agekey
-    -> continue with Flux bootstrap and reconciliation
+validate controller age identity
+  -> create flux-system namespace
+  -> copy identity temporarily to control plane
+  -> create or update flux-system/sops-age
+  -> remove temporary file
+  -> verify age.agekey exists
+  -> bootstrap or verify Flux
 ```
 
 Do not manually create `sops-age` during a normal rebuild.
 
-Verify only the Secret and key name:
+Verify only metadata:
 
 ```bash
-kubectl get secret sops-age -n flux-system
-
-kubectl get secret sops-age -n flux-system \
-  -o jsonpath='{.data}' |
+kubectl get secret sops-age --namespace flux-system
+kubectl get secret sops-age --namespace flux-system \
+  --output jsonpath='{.data}' |
   jq 'keys'
 ```
 
@@ -229,102 +193,110 @@ Expected key:
 age.agekey
 ```
 
-Do not print or decode the Secret value.
+Do not decode or print it.
 
-## SOPS-Encrypted Repository Files
+## Azure Key Vault and External Secrets
 
-The encrypted Azure credential manifest is expected to remain encrypted in Git.
+The encrypted Azure bootstrap identity allows the `ClusterSecretStore` to read:
 
-Test local decryption without writing plaintext to disk:
-
-```bash
-sops --decrypt \
-  kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml \
-  >/dev/null
+```text
+cloudflare-api-token
+grafana-admin-user
+grafana-admin-password
+letsencrypt-production-account-key
 ```
 
-A successful command confirms that the local age key can decrypt the file.
+Expected generated Secrets:
 
-## Terraform Variables
+| Kubernetes Secret | Namespace | Owner |
+|---|---|---|
+| `azure-keyvault-bootstrap` | `external-secrets` | Flux/SOPS |
+| `cloudflare-api-token` | `cert-manager` | External Secrets |
+| `grafana-admin-credentials` | `monitoring` | External Secrets |
+| `letsencrypt-production-account-key-managed` | `cert-manager` | External Secrets |
 
-Create the local variable file:
-
-```bash
-cp terraform/terraform.tfvars.example terraform/terraform.tfvars
-chmod 600 terraform/terraform.tfvars
-git check-ignore -v terraform/terraform.tfvars
-```
-
-The file can contain the Proxmox API token secret, infrastructure values, public SSH keys, addresses, and resource sizing.
-
-Never place a private SSH key in Terraform variables.
-
-## Ansible Inventory
-
-Create local inventory files:
+Verify readiness without returning values:
 
 ```bash
-cp ansible/inventory/hosts.yml.example \
-  ansible/inventory/hosts.yml
-
-cp ansible/inventory/group_vars/all.yml.example \
-  ansible/inventory/group_vars/all.yml
+kubectl get clustersecretstore azure-key-vault
+kubectl get externalsecret --all-namespaces
+kubectl get secret \
+  cloudflare-api-token \
+  --namespace cert-manager \
+  --output custom-columns='NAME:.metadata.name,TYPE:.type,KEYS:.data' |
+  sed 's/map\\[.*\\]/present/'
 ```
 
-The inventory may reference a local private-key path. The private key remains outside the repository.
+Prefer `kubectl describe externalsecret` when troubleshooting. Do not use
+`.data`, base64 decoding, or `stringData` output in a shared transcript.
 
-## Kubernetes Kubeconfig
+## Persistent ACME Account
 
-Local path:
+The production ClusterIssuer sets:
+
+```yaml
+disableAccountKeyGeneration: true
+```
+
+External Secrets must restore
+`letsencrypt-production-account-key-managed` before the issuer becomes Ready.
+This prevents repeated cluster rebuilds from registering a new production ACME
+account.
+
+Treat the account key as private. Base64-encoded Kubernetes Secret data is not
+encryption.
+
+## Administrative Kubeconfig
+
+Expected controller path:
 
 ```text
 ~/.kube/homelab-admin.conf
 ```
 
-Protect it:
+Protect and load it:
 
 ```bash
 chmod 600 "$HOME/.kube/homelab-admin.conf"
+export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
 ```
 
-Do not commit it.
+The file contains cluster-admin credentials. Never commit or upload it.
 
-## Azure Key Vault and External Secrets
+## Secret Rotation
 
-SOPS protects the Azure bootstrap credential manifest stored in Git. External Secrets Operator then uses Azure Key Vault for runtime secrets such as:
+Use this order:
 
-- Cloudflare API token.
-- Grafana administrative credentials.
-- Future application credentials.
+1. Create the new value at the external authority.
+2. Update Azure Key Vault or the local credential store.
+3. Force or wait for External Secrets reconciliation.
+4. Verify the consumer is healthy.
+5. Revoke the old value.
+6. Record the date and recovery impact without recording the value.
 
-The repository should contain only encrypted bootstrap credentials and non-secret references to Key Vault secret names.
+For the SOPS age identity, add a new recipient and re-encrypt all SOPS files
+before removing the old identity. Confirm the new identity can decrypt first.
 
-## Pre-Commit Review
+For the ACME account key, follow cert-manager's account-key rollover process.
+Do not simply delete the managed Secret during a rebuild.
+
+## Pre-Commit Secret Review
 
 ```bash
 git status --short
 git diff --cached --check
 git diff --cached
+
+git ls-files |
+  rg '(^|/)(terraform\\.tfvars|.*admin\\.conf|keys\\.txt)$' &&
+  printf 'Review potentially sensitive tracked paths\n'
+
+git diff --cached |
+  rg -ni 'password|secret|token|private.?key|api.?key'
 ```
 
-Verify ignored files:
+Every heuristic match must be reviewed. Variable names, SOPS ciphertext, and
+public recipients can match legitimately.
 
-```bash
-git check-ignore -v terraform/terraform.tfvars
-git check-ignore -v ansible/inventory/hosts.yml
-git check-ignore -v ansible/inventory/group_vars/all.yml
-```
-
-Optional heuristic:
-
-```bash
-git diff --cached | grep -Ei \
-  'password|secret|token|private.?key|api.?key'
-```
-
-Review every match. Encrypted SOPS fields and variable names can match this search legitimately.
-
-## Official References
-
-- [Flux bootstrap for GitHub](https://fluxcd.io/flux/installation/bootstrap/github/)
-- [GitHub personal access token management](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+If a credential is committed, treat it as compromised even if the commit is
+later removed. Revoke or rotate it first, then clean history if required.

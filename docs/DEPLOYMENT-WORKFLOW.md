@@ -1,208 +1,231 @@
 # Deployment Workflow
 
-This guide gives the normal deployment order. Detailed checks and failure handling are in the individual procedures.
+Use this document to understand stage order and acceptance gates. During an
+actual replacement, use the
+[full rebuild procedure](../ansible/procedures/FULL-REBUILD-PROCEDURE.md),
+which is the canonical command-by-command runbook.
 
-## 1. Prepare Local Configuration
+## Working Directory
 
-From the repository root:
+Clone the repository wherever desired and derive its path:
 
 ```bash
-cp -n terraform/terraform.tfvars.example \
-  terraform/terraform.tfvars
-
-cp -n ansible/inventory/hosts.yml.example \
-  ansible/inventory/hosts.yml
-
-cp -n ansible/inventory/group_vars/all.yml.example \
-  ansible/inventory/group_vars/all.yml
+git clone git@github.com:Stephen-McCruden/homelab.git
+cd homelab
+REPO_ROOT="$(pwd)"
 ```
 
-Protect and verify the Terraform variable file:
+The procedures avoid hard-coding `/home/stoof/GitHub/homelab`.
+
+## Stage Gates
+
+| Stage | Command owner | Gate before continuing |
+|---|---|---|
+| External preflight | Operator | Proxmox, network, state, secrets, and recovery inputs verified |
+| Terraform | `terraform/` | All three VMs exist, cloud-init completed, and SSH works |
+| System initialization | Ansible | Fedora baseline passes and second run is safe |
+| Cluster bootstrap | Ansible | All nodes, Cilium, CoreDNS, and API are healthy |
+| Platform bootstrap | Ansible and Flux | All six Kustomizations and HelmReleases are Ready |
+| Public acceptance | Operator | TLS validates and public ingress responds |
+| Rebuild proof | Operator | No undocumented repair was required |
+
+Never continue merely because a command exited after a timeout. Verify the
+stage's end state.
+
+## 1. Validate External Inputs
+
+Complete:
+
+- [Environment setup](ENVIRONMENT-SETUP.md)
+- [Configuration and secrets](CONFIGURATION-AND-SECRETS.md)
+- [Controller authentication](CONTROLLER-AUTHENTICATION.md)
+
+Confirm Git state:
 
 ```bash
-chmod 600 terraform/terraform.tfvars
-git check-ignore -v terraform/terraform.tfvars
+git status --short
+git pull --ff-only origin main
+git rev-parse HEAD
 ```
 
-Review every placeholder before continuing.
+Record the commit used for the deployment.
 
-## 2. Verify Controller Credentials
-
-### SSH with YubiKey
+## 2. Validate the Repository
 
 ```bash
-test -f "$HOME/.ssh/id_ed25519_sk"
-test -f "$HOME/.ssh/id_ed25519_sk.pub"
-```
-
-### SSH without YubiKey
-
-```bash
-test -f "$HOME/.ssh/id_ed25519"
-chmod 600 "$HOME/.ssh/id_ed25519"
-```
-
-### SOPS age key
-
-```bash
-SOPS_KEY_PATH="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
-test -s "$SOPS_KEY_PATH"
-grep -q '^AGE-SECRET-KEY-' "$SOPS_KEY_PATH"
-```
-
-## 3. Provision Virtual Machines
-
-```bash
-cd terraform
-terraform login
+cd "$REPO_ROOT/terraform"
+terraform fmt -check -recursive
 terraform init
-terraform fmt -recursive
 terraform validate
-terraform plan
-terraform apply
+
+cd "$REPO_ROOT/ansible"
+ansible-inventory --graph
+ansible-playbook playbooks/system-init.yml --syntax-check
+ansible-playbook playbooks/cluster-bootstrap.yml --syntax-check
+ansible-playbook playbooks/platform-bootstrap.yml --syntax-check
+
+ansible-lint --profile min playbooks/system-init.yml
+ansible-lint --profile min playbooks/cluster-bootstrap.yml
+ansible-lint --profile min playbooks/platform-bootstrap.yml
+yamllint .
+
+cd "$REPO_ROOT"
+kubectl kustomize kubernetes/infrastructure/controllers/core >/dev/null
+kubectl kustomize kubernetes/infrastructure/controllers/kubelet-csr-approver >/dev/null
+kubectl kustomize kubernetes/infrastructure/controllers/metrics-server >/dev/null
+kubectl kustomize kubernetes/infrastructure/configs >/dev/null
+kubectl kustomize kubernetes/applications/homelab >/dev/null
 ```
 
-Confirm SSH reachability after cloud-init finishes.
+Encrypted SOPS files can prevent a generic YAML parser from reading their
+ciphertext as normal manifests. Validate them through SOPS:
+
+```bash
+sops --decrypt \
+  kubernetes/infrastructure/configs/external-secrets/azure-credentials.sops.yaml \
+  >/dev/null
+```
+
+## 3. Provision VMs
+
+```bash
+cd "$REPO_ROOT/terraform"
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+Review the plan before applying. Do not keep `tfplan` in Git.
+
+Gate:
+
+```bash
+for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+  ping -c 2 "$address"
+done
+```
+
+Then test SSH with the selected identity. Ping alone is not sufficient.
+
+See the
+[Terraform provisioning procedure](../terraform/procedures/TERRAFORM-PROVISIONING-PROCEDURE.md).
 
 ## 4. Initialize Fedora Nodes
 
 ```bash
-cd ../ansible
+cd "$REPO_ROOT/ansible"
+../scripts/ansible-yubikey playbooks/system-init.yml
 ```
 
-Without a YubiKey:
+Or:
 
 ```bash
 ansible-playbook playbooks/system-init.yml
 ```
 
-With YubiKey-backed SSH:
+Gate:
 
 ```bash
-../scripts/ansible-yubikey playbooks/system-init.yml
+ansible kubernetes_cluster --module-name command \
+  --args='systemctl is-active containerd kubelet firewalld'
 ```
 
-## 5. Build Kubernetes
+The complete validation is performed by the playbook. See
+[System initialization](../ansible/procedures/SYSTEM-INIT-PROCEDURE.md).
 
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/cluster-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
+## 5. Bootstrap Kubernetes
 
 ```bash
 ../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
 ```
 
-## 6. Load the GitHub Token for First Flux Bootstrap
-
-A completely new cluster requires a GitHub fine-grained token. A healthy existing Flux installation does not.
+Or:
 
 ```bash
-read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
-printf '\n'
-export GITHUB_TOKEN
+ansible-playbook playbooks/cluster-bootstrap.yml
 ```
 
-Confirm it exists without printing it:
-
-```bash
-test -n "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN is loaded"
-```
-
-The token permissions are:
-
-```text
-Administration: Read and write
-Contents:       Read and write
-Metadata:       Read-only
-```
-
-Repository access should be limited to the homelab repository.
-
-## 7. Bootstrap Flux and Create the SOPS Secret
-
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/platform-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
-
-```bash
-../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
-```
-
-The playbook now creates `flux-system/sops-age` automatically before Flux applies encrypted configuration.
-
-Do not run a separate manual `kubectl create secret` command.
-
-## 8. Remove the Token
-
-```bash
-unset GITHUB_TOKEN
-test -z "${GITHUB_TOKEN:-}" && echo "GITHUB_TOKEN removed from this shell"
-```
-
-The GitHub token still exists on GitHub until it expires or is revoked.
-
-## 9. Pull the Flux Bootstrap Commit
-
-Flux commits bootstrap manifests to the repository during the first bootstrap.
-
-```bash
-cd ..
-git pull --rebase origin main
-```
-
-Review the generated `clusters/homelab/flux-system/` files before making unrelated changes.
-
-## 10. Verify the Platform
+Load the retrieved kubeconfig:
 
 ```bash
 export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
+```
 
+Gate:
+
+```bash
 kubectl get nodes -o wide
-kubectl get pods -A
-kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A
-kubectl get helmreleases.helm.toolkit.fluxcd.io -A
+kubectl get --raw=/readyz
+kubectl get pods --namespace kube-system
+```
+
+All three nodes must be Ready. CoreDNS and Cilium must be healthy before Flux
+bootstrap.
+
+See [Cluster bootstrap](../ansible/procedures/CLUSTER-BOOTSTRAP-PROCEDURE.md).
+
+## 6. Bootstrap the Platform
+
+For a new cluster:
+
+```bash
+(
+  read -rsp "GitHub fine-grained token: " GITHUB_TOKEN
+  printf '\n'
+  export GITHUB_TOKEN
+
+  ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
+)
+```
+
+Or replace the wrapper with `ansible-playbook`.
+
+The playbook:
+
+1. checks the Kubernetes API
+2. installs the pinned Flux CLI
+3. provisions `flux-system/sops-age`
+4. bootstraps Flux when absent
+5. waits for the source and all six Kustomizations
+6. runs `flux check`
+
+Pull the commit generated by a first Flux bootstrap:
+
+```bash
+cd "$REPO_ROOT"
+git pull --rebase origin main
+```
+
+See [Platform bootstrap](../ansible/procedures/PLATFORM-BOOTSTRAP-PROCEDURE.md).
+
+## 7. Verify the Complete Platform
+
+```bash
+kubectl get kustomizations --namespace flux-system
+kubectl get helmreleases --all-namespaces
+kubectl get clustersecretstore
+kubectl get externalsecret --all-namespaces
+kubectl get clusterissuer
+kubectl get certificate --all-namespaces
+kubectl get certificatesigningrequests
+kubectl top nodes
 ```
 
 Expected Kustomizations:
 
 ```text
-flux-system                 Ready=True
-infrastructure-controllers  Ready=True
-infrastructure-configs      Ready=True
-applications                Ready=True
+flux-system
+infrastructure-controllers
+infrastructure-configs
+applications
+infrastructure-kubelet-csr-approver
+infrastructure-metrics-server
 ```
 
-Verify the SOPS Secret without exposing its value:
+Every Ready condition must be `True`.
 
-```bash
-kubectl get secret sops-age -n flux-system
-```
+## 8. Verify Ingress and TLS
 
-Verify Traefik's static ports:
-
-```bash
-kubectl get service traefik -n traefik \
-  -o jsonpath='{range .spec.ports[*]}{.name}{" "}{.nodePort}{"\n"}{end}'
-```
-
-Expected NodePorts:
-
-```text
-HTTP  32492
-HTTPS 30860
-```
-
-## 11. Verify Ingress
-
-Directly through the Traefik LoadBalancer address:
+Diagnostic LAN test:
 
 ```bash
 curl -vkI \
@@ -210,7 +233,7 @@ curl -vkI \
   https://grafana.mccruden.com
 ```
 
-Directly through the master NodePort:
+Diagnostic NodePort test:
 
 ```bash
 curl -vkI \
@@ -218,65 +241,75 @@ curl -vkI \
   https://grafana.mccruden.com:30860
 ```
 
-Normal external path:
+Acceptance test:
 
 ```bash
-curl -vkI https://grafana.mccruden.com
+curl -fsSI https://grafana.mccruden.com
 ```
 
-A Grafana response normally redirects to `/login`.
+`-k` is allowed for isolating a route. It is not an acceptable final TLS test.
 
-## 12. Verify Idempotency
+## 9. Verify Idempotency
 
-Run each stage again.
-
-Without a YubiKey:
+Run all three Ansible playbooks again without `GITHUB_TOKEN`:
 
 ```bash
-cd ansible
-ansible-playbook playbooks/system-init.yml
-ansible-playbook playbooks/cluster-bootstrap.yml
-ansible-playbook playbooks/platform-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
-
-```bash
-cd ansible
+cd "$REPO_ROOT/ansible"
 ../scripts/ansible-yubikey playbooks/system-init.yml
 ../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
 ../scripts/ansible-yubikey playbooks/platform-bootstrap.yml
 ```
 
-The second platform run does not require `GITHUB_TOKEN` when Flux is already bootstrapped.
-
-A healthy second run should report:
+Expected recap:
 
 ```text
 failed=0
 unreachable=0
 ```
 
-Most tasks should report `ok`. Tasks that enforce generated or time-sensitive state may still need review if they report `changed`.
+Review unexpected `changed` tasks. Some reconciliation tasks can legitimately
+change generated state, but repeated churn must be explained.
 
 ## Normal Change Workflow
 
-### Terraform changes
+### Terraform
 
 ```bash
-cd terraform
 terraform fmt -recursive
 terraform validate
 terraform plan
 terraform apply
 ```
 
-### Ansible changes
+### Ansible
 
-Run the affected playbook, correct errors, and run it again to check idempotency.
+Run syntax and lint checks, execute the affected playbook, and execute it a
+second time.
 
-### Kubernetes changes
+### Kubernetes
 
-Edit files under `clusters/` or `kubernetes/`, validate them, commit, and push. Flux reconciles the desired state.
+```bash
+kubectl kustomize PATH >/dev/null
+git diff --check
+git add PATHS
+git commit
+git push
+```
 
-Manual `flux reconcile` commands are troubleshooting tools. They should not be required during a normal rebuild.
+Flux owns the apply. Manual `kubectl apply` is for controlled diagnosis, not
+normal deployment.
+
+## Recording a Rebuild Proof
+
+Record:
+
+- Git commit
+- start and finish time for every stage
+- first failed automated task, if any
+- all diagnostic commands
+- whether a permanent manual mutation was used
+- final acceptance results
+- observed RTO
+
+A rebuild is proven only when the desired commit reaches the healthy definition
+without an undocumented corrective mutation.

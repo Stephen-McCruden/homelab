@@ -2,60 +2,72 @@
 
 ## Purpose
 
-Initialize the control plane, join required workers, install Cilium, and validate the Kubernetes cluster.
+Initialize the single control-plane node, join workers, reconcile secure
+kubelet serving certificates, install Cilium, and validate cluster health.
 
 ## Preconditions
 
-- `system-init.yml` completed successfully.
-- containerd and kubelet are installed and running.
-- Swap and zram are disabled.
-- Inventory and kubeadm endpoint values are correct.
-- Nodes can reach package and container registries.
-- Node-to-node firewall rules allow required Kubernetes and Cilium traffic.
+- `system-init.yml` completed on every node.
+- containerd, kubelet, firewalld, and time synchronization are healthy.
+- swap and zram are disabled.
+- kubeadm endpoint, Pod CIDR, Service CIDR, and inventory are correct.
+- node firewalls allow required Kubernetes and Cilium traffic.
 
 ## Preflight
 
 ```bash
-cd /home/stoof/GitHub/homelab/ansible
+cd /path/to/homelab/ansible
+
 ansible-playbook playbooks/cluster-bootstrap.yml --syntax-check
-ansible-lint playbooks/cluster-bootstrap.yml
+ansible-lint --profile min playbooks/cluster-bootstrap.yml
+```
+
+Confirm the endpoint is unused on a fresh build and reachable after init:
+
+```text
+192.168.0.52:6443
 ```
 
 ## Execute
 
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/cluster-bootstrap.yml
-```
-
-With YubiKey-backed SSH:
+YubiKey:
 
 ```bash
 ../scripts/ansible-yubikey playbooks/cluster-bootstrap.yml
 ```
 
-## Expected First Run
+File-backed key:
 
-- Render and validate kubeadm configuration.
-- Initialize the control plane.
-- Wait for Kubernetes API readiness.
-- Retrieve the administrative kubeconfig.
-- Apply node-level Cilium prerequisites.
-- Detect workers that require joining.
-- Generate a join token only when required.
-- Join uninitialized workers.
-- Install and validate Cilium.
-- Validate nodes, CoreDNS, API readiness, Cilium, and system Pods.
+```bash
+ansible-playbook playbooks/cluster-bootstrap.yml
+```
 
-## Validate Locally
+## Expected Sequence
+
+```text
+render kubeadm configuration
+  -> initialize or verify control plane
+  -> retrieve administrative kubeconfig
+  -> prepare all nodes for Cilium
+  -> detect unjoined workers
+  -> generate temporary join credentials only when needed
+  -> join missing workers one at a time
+  -> reconcile serverTLSBootstrap on every kubelet
+  -> verify workers exist in the API
+  -> install or verify Cilium
+  -> validate API, nodes, Cilium, CoreDNS, and system Pods
+```
+
+## Acceptance
 
 ```bash
 export KUBECONFIG="$HOME/.kube/homelab-admin.conf"
+chmod 600 "$KUBECONFIG"
 
-kubectl get nodes -o wide
-kubectl get pods -A
 kubectl get --raw=/readyz
+kubectl get nodes -o wide
+kubectl get pods --namespace kube-system -o wide
+kubectl get ciliumnodes
 ```
 
 Expected nodes:
@@ -66,51 +78,80 @@ k8s-worker-01  Ready
 k8s-worker-02  Ready
 ```
 
-## Idempotency
+CoreDNS and Cilium must be healthy. Kubelet serving CSRs may remain pending
+until the Flux-managed approver is installed in the next stage.
 
-Run the same playbook command again.
+## Secure Kubelet Serving Certificates
 
-Expected behavior:
+The intended design uses:
 
-- `kubeadm init` is skipped.
-- Existing workers are not rejoined.
-- No unused join token is generated.
-- Existing Cilium installation is not recreated unnecessarily.
-- Health checks run again.
-- No failures or unreachable hosts occur.
-
-## Partial kubeadm State
-
-The playbook should fail when a node is in inconsistent partial state. Deliberately reset or rebuild the affected node instead of forcing a new join over unknown kubeadm state.
-
-## Kubelet Serving Certificates
-
-The kubelet configuration must enable server TLS bootstrap so kubelet serving certificates can be issued with valid node address SANs.
-
-The kubelet CSR approver is installed through Flux later, so initial serving CSR behavior must be understood during the bootstrap boundary.
-
-After the platform is deployed, verify:
-
-```bash
-kubectl get certificatesigningrequests
+```yaml
+serverTLSBootstrap: true
 ```
 
-Approve only CSRs whose signer, requestor, node identity, and requested addresses are expected. Do not enable blanket approval of arbitrary CSRs.
+Ansible writes it to kubeadm's cluster configuration and each node's active
+kubelet configuration, restarting kubelet only when required. Later, Flux
+installs an approver restricted by expected node names and addresses.
 
-## Failure Handling
+Inspect:
+
+```bash
+kubectl get certificatesigningrequests \
+  --output custom-columns='NAME:.metadata.name,SIGNER:.spec.signerName,REQUESTOR:.spec.username,CONDITIONS:.status.conditions[*].type'
+```
+
+Do not manually approve an unverified request.
+
+## Idempotency
+
+Run the same playbook again. Expected:
+
+- no second `kubeadm init`
+- no rejoin of existing workers
+- no unused token generation
+- no unnecessary Cilium reinstall
+- no repeated kubelet restart when configuration is already correct
+- health checks execute again
+- `failed=0` and `unreachable=0`
+
+## Partial State
+
+The playbook deliberately fails when only part of a kubeadm state exists. For a
+disposable VM, reset or replace the affected node deliberately rather than
+joining over unknown state.
+
+Before destructive recovery, inspect:
+
+```bash
+sudo ls -l /etc/kubernetes /var/lib/kubelet
+sudo systemctl status kubelet containerd
+```
+
+## Failure Isolation
 
 ### API not Ready
 
-Check static Pods, kubelet, containerd, host firewall, kubeadm configuration, and control-plane logs.
+Inspect kubelet, containerd, static Pods, kubeadm config, certificates,
+firewalld, and time.
 
-### Worker does not join
+### Worker join
 
-Check the join token, CA hash, API endpoint, time synchronization, firewall, containerd, kubelet, and partial kubeadm state.
+Inspect endpoint reachability, token TTL, CA hash, CRI socket, kubelet logs,
+firewall, and partial state.
 
-### Cilium not Ready
+### Cilium
 
-Check node routes, Cilium-required ports, kernel modules, sysctls, image pulls, and Cilium Pod logs.
+Inspect required modules/sysctls, UDP `8472`, TCP `4240`, image pulls, Pod logs,
+and node routes.
 
-### Local kubeconfig missing
+### CoreDNS
 
-Verify the kubeconfig role completed and that `~/.kube/homelab-admin.conf` is mode `0600`.
+Confirm Cilium health and Pod-to-API TCP `6443`. Rerun `system-init.yml` if the
+firewall role has not applied the required Pod CIDR rule.
+
+### Local kubeconfig
+
+Confirm the kubeconfig role completed and
+`~/.kube/homelab-admin.conf` exists with mode `0600`.
+
+Continue with [Platform bootstrap](PLATFORM-BOOTSTRAP-PROCEDURE.md).

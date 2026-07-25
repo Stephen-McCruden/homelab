@@ -2,35 +2,36 @@
 
 ## Purpose
 
-Converge fresh Terraform-provisioned Fedora nodes into a validated Kubernetes node baseline.
+Converge fresh Terraform-provisioned Fedora VMs into a validated Kubernetes
+node baseline.
 
 ## Preconditions
 
 - Terraform completed successfully.
 - All three VMs are reachable over SSH.
-- Inventory addresses match Terraform.
-- The configured private key matches a public key injected by Terraform.
-- The remote user has noninteractive passwordless sudo.
-- Commands are run from `ansible/`.
+- inventory names and addresses match Terraform.
+- the selected private identity matches a Terraform-injected public key.
+- the remote user has noninteractive passwordless sudo.
+- commands run from the repository's `ansible/` directory.
 
 ## Preflight
 
 ```bash
-cd /home/stoof/GitHub/homelab/ansible
+cd /path/to/homelab/ansible
+
 ansible-inventory --graph
 ansible-playbook playbooks/system-init.yml --syntax-check
-ansible-lint playbooks/system-init.yml
+ansible-lint --profile min playbooks/system-init.yml
+yamllint playbooks/system-init.yml roles
 ```
 
-### Standard SSH key test
+File-backed SSH:
 
 ```bash
-ansible all -m ping
+ansible kubernetes_cluster --module-name ping
 ```
 
-### YubiKey-backed SSH test
-
-The wrapper runs `ansible-playbook`, so use direct SSH for the preflight connection test:
+YubiKey:
 
 ```bash
 ssh -o IdentitiesOnly=yes \
@@ -38,94 +39,118 @@ ssh -o IdentitiesOnly=yes \
   stoof@192.168.0.52 true
 ```
 
+Repeat direct SSH for both workers.
+
 ## Execute
 
-Without a YubiKey:
-
-```bash
-ansible-playbook playbooks/system-init.yml
-```
-
-With YubiKey-backed SSH:
+YubiKey:
 
 ```bash
 ../scripts/ansible-yubikey playbooks/system-init.yml
 ```
 
-## Expected Actions
+File-backed key:
 
-- Reconcile controller `known_hosts` entries.
-- Validate Fedora, inventory, and sudo.
-- Stop or suppress conflicting automatic DNF metadata jobs.
-- Install prerequisites.
-- Configure kernel modules and sysctls.
-- Disable swap and zram.
-- Install and configure containerd.
-- Install Kubernetes packages.
-- Configure firewalld.
-- Apply SSH hardening.
-- Configure SELinux permissive mode.
-- Verify the resulting state.
+```bash
+ansible-playbook playbooks/system-init.yml
+```
+
+## Expected Work
+
+1. reconcile controller `known_hosts`
+2. validate Fedora, inventory, and sudo
+3. control competing DNF5 metadata jobs
+4. install prerequisites
+5. configure kernel modules and sysctls
+6. disable swap and zram
+7. install and configure containerd
+8. install Kubernetes packages
+9. configure firewalld
+10. harden SSH
+11. set SELinux permissive
+12. verify final state
+
+## Acceptance
+
+The playbook's verification role is authoritative. Additional checks:
+
+```bash
+ansible kubernetes_cluster \
+  --become \
+  --module-name command \
+  --args='systemctl is-active containerd kubelet firewalld'
+
+ansible kubernetes_cluster \
+  --become \
+  --module-name command \
+  --args='swapon --show'
+```
+
+The services should be active and the swap output empty.
 
 ## Idempotency
 
-Run the same command again.
-
-Expected:
+Run the same command again. Require:
 
 ```text
 failed=0
 unreachable=0
 ```
 
-Most tasks should report `ok`. Investigate unexpected changes.
+Investigate repeated package transactions, service restarts, regenerated
+configuration, or firewall churn.
 
-## DNF5 Behavior
+## Important Decisions
 
-The package-manager role disables or stops conflicting metadata jobs, serializes sensitive package operations, keeps GPG verification enabled, and performs cleanup only after an actual transaction failure.
+### DNF5
 
-Do not add an unconditional:
+The package role serializes sensitive transactions, keeps GPG verification
+enabled, and performs recovery only after a real failure.
+
+Do not add:
 
 ```bash
 dnf5 makecache --refresh
 ```
 
-## SELinux
+as an unconditional task.
 
-SELinux remains enabled but permissive. AVC denials remain available for review, but enforcing protection is not active on the Kubernetes nodes.
+### SELinux
 
-## Failure Handling
+SELinux remains enabled in permissive mode because Fedora policy currently
+blocks required Kubernetes static-Pod behavior in enforcing mode. AVCs remain
+available for future policy work.
 
-### Unreachable node
+### Firewall
 
-Check:
+The firewall role owns node and Pod-to-host rules. A manual `firewall-cmd`
+change is a diagnostic only and will not survive a rebuild unless encoded in
+the role.
 
-- Routing and TCP 22.
-- Inventory address and username.
-- Controller private-key path.
-- Injected public key.
-- cloud-init completion.
-- Old `known_hosts` entries.
+## Failure Isolation
 
-### YubiKey prompt failure
+### Unreachable
 
-Check:
+Check route, TCP `22`, inventory, username, SSH key, cloud-init, and stale host
+keys.
 
-- The key path.
-- YubiKey insertion.
-- `SSH_ASKPASS` path.
-- PIN entry.
-- Physical touch.
-- That the matching public key was injected by Terraform.
+### YubiKey prompt
 
-### Sudo failure
+Check key insertion, identity path, PIN, physical touch, askpass, and whether
+the matching public key was injected.
 
-Configure noninteractive passwordless sudo for the automation user.
+### Sudo
 
-### Package failure
+The automation user requires noninteractive passwordless sudo.
 
-Allow the role's recovery block to complete. Do not disable package signature verification.
+### Package transaction
+
+Inspect DNF/RPM processes and systemd jobs. Allow the role's bounded recovery to
+complete; do not disable signature verification.
 
 ### Partial convergence
 
-Correct the cause and rerun the same playbook. Do not manually repeat only the failed shell command unless troubleshooting requires it.
+Correct the cause and rerun the full playbook. Do not turn the failed shell
+command into an undocumented one-off installation step.
+
+Continue with [Cluster bootstrap](CLUSTER-BOOTSTRAP-PROCEDURE.md).
