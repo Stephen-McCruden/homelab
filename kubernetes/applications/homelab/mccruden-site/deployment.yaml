@@ -55,7 +55,7 @@ spec:
 
       containers:
         - name: site
-          image: ghcr.io/stephen-mccruden/mccruden.com@sha256:f23abbcb14ff43697bf036291422499b3abb39ad2f5d80632bab26c3fc4e53e9
+          image: ghcr.io/stephen-mccruden/mccruden.com@sha256:8b94e3cb3227b87d5757c9624061ed3a814cab64549027d90b406813b884c7e0
           imagePullPolicy: IfNotPresent
 
           ports:
