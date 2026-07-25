@@ -1,0 +1,31 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/monitoring/flux-podmonitor.yaml
+# PURPOSE: Scrape Prometheus metrics from Flux controllers.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux-system
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: flux-system
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: flux
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - helm-controller
+          - source-controller
+          - kustomize-controller
+          - notification-controller
+
+  podMetricsEndpoints:
+    - port: http-prom
+      interval: 30s
