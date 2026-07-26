@@ -1,0 +1,38 @@
+# FILE PATH:
+# kubernetes/automation/homelab/mccruden-site/image-policies.yaml
+# PURPOSE: Select the newest immutable image in each website release channel.
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: mccruden-site-preview
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: mccruden-site
+  filterTags:
+    pattern: '^preview-(?P<run>[1-9][0-9]*)-[a-f0-9]{40}$'
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc
+  digestReflectionPolicy: IfNotPresent
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: mccruden-site-production
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: mccruden-site
+  filterTags:
+    # The pinned sha tag is a one-time bootstrap candidate. Every GitHub
+    # Actions run ID is greater than 43, so the first production-* image
+    # permanently supersedes it without exposing production to preview tags.
+    pattern: '^(sha-(?P<bootstrap>43)ab6bb38fe93007a37fe4f5404e4979ef910ced|production-(?P<run>[1-9][0-9]*)-[a-f0-9]{40})$'
+    extract: '$bootstrap$run'
+  policy:
+    numerical:
+      order: asc
+  digestReflectionPolicy: IfNotPresent

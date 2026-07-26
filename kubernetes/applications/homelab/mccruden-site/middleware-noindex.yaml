@@ -1,0 +1,16 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mccruden-site/middleware-noindex.yaml
+# PURPOSE: Prevent the fixed preview environment from being indexed.
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mccruden-site-preview-noindex
+  namespace: mccruden-site
+  labels:
+    app.kubernetes.io/name: mccruden-site
+    app.kubernetes.io/part-of: mccruden-com
+spec:
+  headers:
+    customResponseHeaders:
+      X-Robots-Tag: noindex, nofollow

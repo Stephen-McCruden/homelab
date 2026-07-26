@@ -1,0 +1,33 @@
+# FILE PATH:
+# kubernetes/automation/homelab/mccruden-site/image-update-automation.yaml
+# PURPOSE: Commit selected immutable website image references back to Git.
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: mccruden-site
+  namespace: flux-system
+spec:
+  interval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        name: Flux
+        email: stephen@mccruden.com
+      messageTemplate: |-
+        chore(site): update deployed image
+
+        Automated by Flux image update automation.
+    push:
+      branch: main
+
+  update:
+    path: ./kubernetes/applications/homelab
+    strategy: Setters

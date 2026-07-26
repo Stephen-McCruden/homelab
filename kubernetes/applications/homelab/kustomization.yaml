@@ -7,3 +7,4 @@ kind: Kustomization
 resources:
   - grafana
   - mccruden-site
+  - mccruden-site-production
