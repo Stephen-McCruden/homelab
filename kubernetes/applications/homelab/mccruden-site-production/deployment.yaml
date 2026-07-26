@@ -1,15 +1,16 @@
 # FILE PATH:
-# kubernetes/applications/homelab/mccruden-site/deployment.yaml
-# PURPOSE: Run two hardened replicas of the immutable site image.
+# kubernetes/applications/homelab/mccruden-site-production/deployment.yaml
+# PURPOSE: Run two hardened replicas of the immutable production site image.
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mccruden-site
-  namespace: mccruden-site
+  namespace: mccruden-site-production
   labels:
     app.kubernetes.io/name: mccruden-site
     app.kubernetes.io/part-of: mccruden-com
+    app.kubernetes.io/environment: production
 spec:
   replicas: 2
   revisionHistoryLimit: 3
@@ -30,6 +31,7 @@ spec:
       labels:
         app.kubernetes.io/name: mccruden-site
         app.kubernetes.io/part-of: mccruden-com
+        app.kubernetes.io/environment: production
     spec:
       serviceAccountName: mccruden-site
       automountServiceAccountToken: false
@@ -55,7 +57,7 @@ spec:
 
       containers:
         - name: site
-          image: ghcr.io/stephen-mccruden/mccruden.com:sha-43ab6bb38fe93007a37fe4f5404e4979ef910ced@sha256:e43e0b27fb63d8f794580178f23b52e72a55585b4645e9f9585d1b5daea65fc7  # {"$imagepolicy": "flux-system:mccruden-site-preview"}
+          image: ghcr.io/stephen-mccruden/mccruden.com:sha-43ab6bb38fe93007a37fe4f5404e4979ef910ced@sha256:e43e0b27fb63d8f794580178f23b52e72a55585b4645e9f9585d1b5daea65fc7  # {"$imagepolicy": "flux-system:mccruden-site-production"}
           imagePullPolicy: IfNotPresent
 
           ports:

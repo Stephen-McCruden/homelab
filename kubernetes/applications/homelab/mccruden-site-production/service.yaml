@@ -1,0 +1,25 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mccruden-site-production/service.yaml
+# PURPOSE: Expose the production site internally to Traefik.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mccruden-site
+  namespace: mccruden-site-production
+  labels:
+    app.kubernetes.io/name: mccruden-site
+    app.kubernetes.io/part-of: mccruden-com
+    app.kubernetes.io/environment: production
+spec:
+  type: ClusterIP
+
+  selector:
+    app.kubernetes.io/name: mccruden-site
+
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

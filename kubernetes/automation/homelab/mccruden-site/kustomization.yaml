@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/automation/homelab/mccruden-site/kustomization.yaml
+# PURPOSE: Configure automated preview and production image promotion.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - image-repository.yaml
+  - image-policies.yaml
+  - image-update-automation.yaml

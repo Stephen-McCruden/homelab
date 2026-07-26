@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/automation/homelab/mccruden-site/image-repository.yaml
+# PURPOSE: Scan the public site image repository for release-channel tags.
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: mccruden-site
+  namespace: flux-system
+spec:
+  image: ghcr.io/stephen-mccruden/mccruden.com
+  interval: 1m

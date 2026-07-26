@@ -50,6 +50,15 @@ flux_bootstrap_github_token: >-
 flux_bootstrap_namespace: flux-system
 flux_bootstrap_timeout: 10m
 
+# Image automation is required for the website preview and production
+# delivery channels. The deploy key must be writable so Flux can record
+# selected immutable image references in Git.
+flux_bootstrap_extra_components:
+  - image-reflector-controller
+  - image-automation-controller
+
+flux_bootstrap_read_write_key: true
+
 # Bootstrap secret used by Flux Kustomizations that enable SOPS decryption.
 # This file is read from the Ansible controller and is never stored in Git.
 # Set SOPS_AGE_KEY_FILE to override the default controller-side path.
@@ -70,6 +79,8 @@ flux_bootstrap_controller_deployments:
   - kustomize-controller
   - helm-controller
   - notification-controller
+  - image-reflector-controller
+  - image-automation-controller
 
 # The critical application path is checked first. The independent kubelet
 # certificate and Metrics Server paths are checked afterward so a node-metrics

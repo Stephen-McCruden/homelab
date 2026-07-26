@@ -20,6 +20,8 @@
       - flux_bootstrap_sops_age_secret_name | length > 0
       - flux_bootstrap_sops_age_secret_key | length > 0
       - flux_bootstrap_sops_age_key_file | length > 0
+      - flux_bootstrap_extra_components | length > 0
+      - flux_bootstrap_read_write_key is boolean
       - flux_bootstrap_controller_deployments | length > 0
       - flux_bootstrap_managed_kustomizations | length > 0
     fail_msg: >-
@@ -396,7 +398,14 @@
       - "--personal={{ flux_bootstrap_github_personal | lower }}"
       - "--private={{ flux_bootstrap_github_private | lower }}"
       - --token-auth=false
-      - --read-write-key=false
+      - >-
+        --components-extra={{
+        flux_bootstrap_extra_components | join(',')
+        }}
+      - >-
+        --read-write-key={{
+        flux_bootstrap_read_write_key | lower
+        }}
       - "--author-name={{ flux_bootstrap_git_author_name }}"
       - "--author-email={{ flux_bootstrap_git_author_email }}"
       - "--version={{ flux_bootstrap_version }}"
