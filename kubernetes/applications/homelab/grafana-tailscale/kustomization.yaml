@@ -1,0 +1,9 @@
+# FILE PATH:
+# kubernetes/applications/homelab/grafana-tailscale/kustomization.yaml
+# PURPOSE: Add private Grafana access without disrupting the current route.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ingress.yaml

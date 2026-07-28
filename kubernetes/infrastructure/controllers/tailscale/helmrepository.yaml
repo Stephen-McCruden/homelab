@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/tailscale/helmrepository.yaml
+# PURPOSE: Register the stable official Tailscale Helm chart repository.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: tailscale
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://pkgs.tailscale.com/helmcharts

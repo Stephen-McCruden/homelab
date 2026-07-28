@@ -1,0 +1,24 @@
+# FILE PATH:
+# kubernetes/applications/homelab/homepage/service.yaml
+# PURPOSE: Expose Homepage internally for the Tailscale ingress proxy.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+    app.kubernetes.io/part-of: homelab
+spec:
+  type: ClusterIP
+
+  selector:
+    app.kubernetes.io/name: homepage
+
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

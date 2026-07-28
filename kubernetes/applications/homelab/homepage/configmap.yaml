@@ -1,0 +1,122 @@
+# FILE PATH:
+# kubernetes/applications/homelab/homepage/configmap.yaml
+# PURPOSE: Define Homepage's private service links and cluster overview.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+    app.kubernetes.io/part-of: homelab
+data:
+  kubernetes.yaml: |
+    mode: cluster
+    ingress: true
+
+  settings.yaml: |
+    title: McCruden Homelab
+    description: Private homelab dashboard
+    theme: dark
+    color: slate
+    headerStyle: clean
+    target: _self
+    statusStyle: dot
+    disableIndexing: true
+    disableUpdateCheck: true
+    layout:
+      Applications:
+        style: row
+        columns: 3
+      Infrastructure:
+        style: row
+        columns: 4
+      Public:
+        style: row
+        columns: 2
+
+  services.yaml: |
+    - Applications:
+        - Linkding:
+            icon: linkding.png
+            href: https://linkding.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}
+            description: Private bookmark manager
+            namespace: linkding
+            app: linkding
+
+        - Grafana:
+            icon: grafana.png
+            href: https://grafana.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}
+            description: Cluster dashboards and observability
+            namespace: monitoring
+            app: grafana
+
+        - Homepage:
+            icon: homepage.png
+            href: https://homepage.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}
+            description: Private homelab launchpad
+            namespace: homepage
+            app: homepage
+
+    - Infrastructure:
+        - Proxmox pve1:
+            icon: proxmox.png
+            href: https://192.168.0.50:8006
+            description: Proxmox cluster node 1
+
+        - Proxmox pve2:
+            icon: proxmox.png
+            href: https://192.168.0.51:8006
+            description: Proxmox cluster node 2
+
+        - Proxmox pve3:
+            icon: proxmox.png
+            href: https://192.168.0.52:8006
+            description: Proxmox cluster node 3
+
+    - Public:
+        - mccruden.com:
+            icon: mdi-web
+            href: https://mccruden.com
+            description: Public portfolio
+
+        - Preview:
+            icon: mdi-web-clock
+            href: https://preview.mccruden.com
+            description: Website preview environment
+
+  widgets.yaml: |
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: homelab
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+
+    - search:
+        provider: duckduckgo
+        target: _blank
+
+    - datetime:
+        text_size: xl
+        format:
+          dateStyle: long
+          timeStyle: short
+          hour12: true
+
+  bookmarks.yaml: |
+    - Development:
+        - Homelab Repository:
+            - icon: github.png
+              href: https://github.com/Stephen-McCruden/homelab
+
+  docker.yaml: ""
+  custom.css: ""
+  custom.js: ""

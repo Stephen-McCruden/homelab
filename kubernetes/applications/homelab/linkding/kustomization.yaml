@@ -12,3 +12,4 @@ resources:
   - persistentvolumeclaim.yaml
   - deployment.yaml
   - service.yaml
+  - ingress.yaml
