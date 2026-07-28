@@ -10,5 +10,6 @@ resources:
   - ../cert-manager
   - ../external-secrets
   - ../kube-prometheus-stack
+  - ../longhorn
   - ../metallb
   - ../traefik
