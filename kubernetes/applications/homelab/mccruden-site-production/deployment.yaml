@@ -1,7 +1,3 @@
-# FILE PATH:
-# kubernetes/applications/homelab/mccruden-site-production/deployment.yaml
-# PURPOSE: Run two hardened replicas of the immutable production site image.
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,17 +11,14 @@ spec:
   replicas: 2
   revisionHistoryLimit: 3
   minReadySeconds: 5
-
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
-
   selector:
     matchLabels:
       app.kubernetes.io/name: mccruden-site
-
   template:
     metadata:
       labels:
@@ -37,7 +30,6 @@ spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       terminationGracePeriodSeconds: 10
-
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
@@ -46,7 +38,6 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
-
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -54,24 +45,20 @@ spec:
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: mccruden-site
-
       containers:
         - name: site
-          image: ghcr.io/stephen-mccruden/mccruden.com:sha-43ab6bb38fe93007a37fe4f5404e4979ef910ced@sha256:e43e0b27fb63d8f794580178f23b52e72a55585b4645e9f9585d1b5daea65fc7  # {"$imagepolicy": "flux-system:mccruden-site-production"}
+          image: ghcr.io/stephen-mccruden/mccruden.com:production-30382421358-86eb384158a4afbd6da38e07a682293e45c2fe33@sha256:0b6cf44b30870888c9b61ccc53a74bed85b95bb90c4c51aecb9cf8c88edc9a37 # {"$imagepolicy": "flux-system:mccruden-site-production"}
           imagePullPolicy: IfNotPresent
-
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
-
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
-
           startupProbe:
             httpGet:
               path: /healthz
@@ -79,7 +66,6 @@ spec:
             periodSeconds: 2
             timeoutSeconds: 1
             failureThreshold: 30
-
           readinessProbe:
             httpGet:
               path: /healthz
@@ -87,7 +73,6 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 3
-
           livenessProbe:
             httpGet:
               path: /healthz
@@ -95,7 +80,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
-
           resources:
             requests:
               cpu: 10m
@@ -103,11 +87,9 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
-
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-
       volumes:
         - name: tmp
           emptyDir:
