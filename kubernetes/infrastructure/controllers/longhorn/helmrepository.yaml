@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/longhorn/helmrepository.yaml
+# PURPOSE: Register the official Longhorn Helm repository.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: longhorn
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://charts.longhorn.io

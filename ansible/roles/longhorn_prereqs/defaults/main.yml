@@ -1,0 +1,10 @@
+# FILE PATH: roles/longhorn_prereqs/defaults/main.yml
+---
+longhorn_prerequisite_packages:
+  - cryptsetup
+  - device-mapper
+  - iscsi-initiator-utils
+  - nfs-utils
+
+longhorn_kernel_modules:
+  - iscsi_tcp

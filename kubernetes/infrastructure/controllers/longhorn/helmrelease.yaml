@@ -1,0 +1,94 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/longhorn/helmrelease.yaml
+# PURPOSE: Deploy Longhorn distributed block storage through Flux.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+spec:
+  interval: 30m
+  timeout: 20m
+
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: monitoring
+
+  chart:
+    spec:
+      chart: longhorn
+      version: "1.12.0"
+      sourceRef:
+        kind: HelmRepository
+        name: longhorn
+        namespace: flux-system
+      interval: 1h
+
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+
+  upgrade:
+    crds: CreateReplace
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 10m
+    cleanupOnFail: true
+
+  values:
+    longhornManager:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+    longhornDriver:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+    persistence:
+      createStorageClass: true
+      defaultClass: true
+      defaultFsType: ext4
+      defaultClassReplicaCount: 2
+      defaultDataLocality: best-effort
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      dataEngine: v1
+
+    defaultSettings:
+      defaultDataPath: /var/lib/longhorn
+      defaultDataLocality: best-effort
+      defaultReplicaCount: '{"v1":"2","v2":"2"}'
+      replicaAutoBalance: best-effort
+      storageOverProvisioningPercentage: 100
+      storageMinimalAvailablePercentage: 25
+      storageReservedPercentageForDefaultDisk: 30
+      taintToleration: >-
+        node-role.kubernetes.io/control-plane:NoSchedule
+      upgradeChecker: true
+
+    # The chart recommends disabling the Helm pre-upgrade Job when a GitOps
+    # controller owns the release. Longhorn's manager still checks versions.
+    preUpgradeChecker:
+      jobEnabled: false
+      upgradeVersionCheck: true
+
+    longhornUI:
+      replicas: 1
+
+    ingress:
+      enabled: false
+
+    metrics:
+      serviceMonitor:
+        enabled: true
+        interval: 30s

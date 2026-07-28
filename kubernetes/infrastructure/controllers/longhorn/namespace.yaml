@@ -1,0 +1,14 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/longhorn/namespace.yaml
+# PURPOSE: Provide a privileged namespace for Longhorn storage components.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-system
+  labels:
+    app.kubernetes.io/name: longhorn-system
+    app.kubernetes.io/part-of: homelab-platform
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

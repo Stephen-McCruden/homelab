@@ -91,6 +91,7 @@
   roles:
     - package_manager
     - prereqs
+    - longhorn_prereqs
     - container_runtime
     - kubernetes_node
     - firewall
