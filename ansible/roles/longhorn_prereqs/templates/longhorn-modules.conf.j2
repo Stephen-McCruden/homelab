@@ -1,0 +1,4 @@
+# Managed by Ansible. Required by the Longhorn V1 data engine.
+{% for module in longhorn_kernel_modules %}
+{{ module }}
+{% endfor %}

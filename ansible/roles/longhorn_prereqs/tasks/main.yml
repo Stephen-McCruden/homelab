@@ -1,0 +1,72 @@
+# FILE PATH: roles/longhorn_prereqs/tasks/main.yml
+---
+- name: Install Longhorn prerequisite packages
+  ansible.builtin.include_role:
+    name: package_manager
+    tasks_from: install
+  vars:
+    package_manager_packages: "{{ longhorn_prerequisite_packages }}"
+
+- name: Persist Longhorn kernel modules
+  ansible.builtin.template:
+    src: longhorn-modules.conf.j2
+    dest: /etc/modules-load.d/longhorn.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read loaded kernel modules for Longhorn
+  ansible.builtin.command: lsmod
+  register: longhorn_loaded_kernel_modules
+  changed_when: false
+  check_mode: false
+
+- name: Load missing Longhorn kernel modules
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - "{{ item }}"
+  loop: "{{ longhorn_kernel_modules }}"
+  when: >-
+    longhorn_loaded_kernel_modules.stdout
+    is not regex('(?m)^' ~ item ~ '\\s')
+  changed_when: true
+
+- name: Ensure iSCSI configuration directory exists
+  ansible.builtin.file:
+    path: /etc/iscsi
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Inspect iSCSI initiator identity
+  ansible.builtin.stat:
+    path: /etc/iscsi/initiatorname.iscsi
+  register: longhorn_iscsi_initiator
+
+- name: Generate iSCSI initiator identity when absent
+  ansible.builtin.command:
+    argv:
+      - iscsi-iname
+  register: longhorn_generated_iscsi_initiator
+  when: >-
+    not longhorn_iscsi_initiator.stat.exists
+    or longhorn_iscsi_initiator.stat.size | int == 0
+  changed_when: false
+
+- name: Persist generated iSCSI initiator identity
+  ansible.builtin.copy:
+    content: |
+      InitiatorName={{ longhorn_generated_iscsi_initiator.stdout | trim }}
+    dest: /etc/iscsi/initiatorname.iscsi
+    owner: root
+    group: root
+    mode: "0600"
+  when: longhorn_generated_iscsi_initiator is not skipped
+
+- name: Enable and start the iSCSI daemon
+  ansible.builtin.systemd_service:
+    name: iscsid.service
+    enabled: true
+    state: started

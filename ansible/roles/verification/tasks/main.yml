@@ -14,6 +14,7 @@
   loop:
     - containerd.service
     - firewalld.service
+    - iscsid.service
 
 - name: Check active swap
   ansible.builtin.command:
@@ -138,9 +139,43 @@
     that:
       - verification_containerd.stdout is search('(?m)^\\s*SystemdCgroup\\s*=\\s*true\\s*$')
 
+- name: Verify iSCSI administration utility is installed
+  ansible.builtin.command:
+    argv:
+      - iscsiadm
+      - --version
+  register: verification_iscsiadm
+  changed_when: false
+  check_mode: false
+
+- name: Verify NFS client utility is installed
+  ansible.builtin.command:
+    argv:
+      - mount.nfs
+      - --version
+  register: verification_mount_nfs
+  changed_when: false
+  check_mode: false
+
+- name: Inspect required Longhorn kernel modules
+  ansible.builtin.stat:
+    path: "/sys/module/{{ item }}"
+  loop: "{{ longhorn_kernel_modules }}"
+  register: verification_longhorn_kernel_modules
+
+- name: Verify required Longhorn kernel modules are loaded
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+  loop: "{{ verification_longhorn_kernel_modules.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
 - name: Report verified Kubernetes component versions
   ansible.builtin.debug:
     msg:
       - "kubeadm: {{ verification_kubeadm.stdout | trim }}"
       - "kubelet: {{ verification_kubelet.stdout | trim }}"
       - "kubectl client verification completed successfully"
+      - "iscsiadm: {{ verification_iscsiadm.stdout | trim }}"
+      - "NFS client: {{ verification_mount_nfs.stdout | trim }}"
