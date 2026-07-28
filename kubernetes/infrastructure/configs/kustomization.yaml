@@ -6,6 +6,7 @@ kind: Kustomization
 
 resources:
   - cert-manager
-  - metallb
   - external-secrets
+  - metallb
+  - tailscale
   - traefik

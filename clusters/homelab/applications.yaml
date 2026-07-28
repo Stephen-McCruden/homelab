@@ -10,6 +10,7 @@ metadata:
 spec:
   dependsOn:
     - name: infrastructure-configs
+    - name: infrastructure-tailscale-ingress
 
   interval: 10m
   retryInterval: 1m

@@ -1,0 +1,10 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/tailscale/kustomization.yaml
+# PURPOSE: Prepare the Tailscale namespace and restore operator credentials.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - external-secret.yaml

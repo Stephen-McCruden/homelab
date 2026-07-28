@@ -1,0 +1,33 @@
+# FILE PATH:
+# kubernetes/applications/homelab/grafana-tailscale/ingress.yaml
+# PURPOSE: Add a private Tailscale HTTPS endpoint before retiring Grafana's
+#          existing Traefik endpoint.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-tailscale
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: homelab
+  annotations:
+    tailscale.com/proxy-class: homelab-ingress
+    tailscale.com/tags: tag:k8s
+spec:
+  ingressClassName: tailscale
+
+  tls:
+    - hosts:
+        - grafana
+
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kube-prometheus-stack-grafana
+                port:
+                  number: 80

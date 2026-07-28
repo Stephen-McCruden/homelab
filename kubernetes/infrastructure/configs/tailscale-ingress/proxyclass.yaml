@@ -1,0 +1,25 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/tailscale-ingress/proxyclass.yaml
+# PURPOSE: Bound standalone Tailscale ingress proxy resources and export
+#          their metrics.
+---
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: homelab-ingress
+spec:
+  metrics:
+    enable: true
+    serviceMonitor:
+      enable: true
+
+  statefulSet:
+    pod:
+      tailscaleContainer:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi

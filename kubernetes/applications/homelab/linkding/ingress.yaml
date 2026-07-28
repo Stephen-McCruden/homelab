@@ -1,0 +1,32 @@
+# FILE PATH:
+# kubernetes/applications/homelab/linkding/ingress.yaml
+# PURPOSE: Expose Linkding privately to the tailnet with automatic HTTPS.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkding
+  namespace: linkding
+  labels:
+    app.kubernetes.io/name: linkding
+    app.kubernetes.io/part-of: homelab
+  annotations:
+    tailscale.com/proxy-class: homelab-ingress
+    tailscale.com/tags: tag:k8s
+spec:
+  ingressClassName: tailscale
+
+  tls:
+    - hosts:
+        - linkding
+
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: linkding
+                port:
+                  number: 80

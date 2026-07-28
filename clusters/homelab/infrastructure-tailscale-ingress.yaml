@@ -1,0 +1,23 @@
+# FILE PATH: clusters/homelab/infrastructure-tailscale-ingress.yaml
+# PURPOSE: Configure resource-bounded private ingress proxies only after the
+#          Tailscale Operator and its CRDs are healthy.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-tailscale-ingress
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infrastructure-tailscale-operator
+
+  interval: 10m
+  retryInterval: 1m
+  timeout: 10m
+  path: ./kubernetes/infrastructure/configs/tailscale-ingress
+  prune: true
+  wait: true
+
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

@@ -1,0 +1,32 @@
+# FILE PATH:
+# kubernetes/applications/homelab/homepage/ingress.yaml
+# PURPOSE: Expose Homepage privately to the tailnet with automatic HTTPS.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+    app.kubernetes.io/part-of: homelab
+  annotations:
+    tailscale.com/proxy-class: homelab-ingress
+    tailscale.com/tags: tag:k8s
+spec:
+  ingressClassName: tailscale
+
+  tls:
+    - hosts:
+        - homepage
+
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homepage
+                port:
+                  number: 80
