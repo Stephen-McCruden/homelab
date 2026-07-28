@@ -1,0 +1,24 @@
+# FILE PATH:
+# kubernetes/applications/homelab/linkding/service.yaml
+# PURPOSE: Expose Linkding internally for validation and future private routing.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkding
+  namespace: linkding
+  labels:
+    app.kubernetes.io/name: linkding
+    app.kubernetes.io/part-of: homelab
+spec:
+  type: ClusterIP
+
+  selector:
+    app.kubernetes.io/name: linkding
+
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

@@ -1,0 +1,22 @@
+# FILE PATH:
+# kubernetes/applications/homelab/linkding/persistentvolumeclaim.yaml
+# PURPOSE: Persist Linkding's SQLite database and application data on Longhorn.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: linkding-data
+  namespace: linkding
+  labels:
+    app.kubernetes.io/name: linkding
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  storageClassName: longhorn
+  volumeMode: Filesystem
+
+  resources:
+    requests:
+      storage: 5Gi
