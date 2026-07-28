@@ -45,7 +45,7 @@ spec:
               app.kubernetes.io/name: mccruden-site
       containers:
         - name: site
-          image: ghcr.io/stephen-mccruden/mccruden.com:preview-30382157623-d654913b9b580d8808e540f3cc9b0c8f1d8a0093@sha256:9dd1eaa1d78b96e30e280d7f3b50d8cb645cb920043bb80cd0eb4df2bc4cd91b # {"$imagepolicy": "flux-system:mccruden-site-preview"}
+          image: ghcr.io/stephen-mccruden/mccruden.com:preview-30384550830-b77c1f29f9ab95539188b6b5b47479623d8ee559@sha256:73741c1a669faa4d6d1327c80f26a4b85bbfd221d50431de9608b8affc45b9be # {"$imagepolicy": "flux-system:mccruden-site-preview"}
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
