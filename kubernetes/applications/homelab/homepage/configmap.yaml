@@ -68,13 +68,6 @@ data:
             namespace: monitoring
             app: grafana
 
-        - Homepage:
-            icon: homepage.png
-            href: https://homepage.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}
-            description: Private homelab launchpad
-            namespace: homepage
-            app: homepage
-
     - Infrastructure:
         - Proxmox pve1:
             icon: proxmox.png
@@ -132,6 +125,23 @@ data:
         - Homelab Repository:
             - icon: github.png
               href: https://github.com/Stephen-McCruden/homelab
+
+    - Social:
+        - YouTube:
+            - abbr: YT
+              href: https://youtube.com/
+
+        - X:
+            - abbr: X
+              href: https://x.com/
+
+        - LinkedIn:
+            - abbr: IN
+              href: https://linkedin.com/
+
+        - ChatGPT:
+            - abbr: CG
+              href: https://chatgpt.com/
 
   docker.yaml: ""
   custom.css: ""
