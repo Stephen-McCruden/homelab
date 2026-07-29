@@ -64,17 +64,17 @@ data:
     - Infrastructure:
         - Proxmox pve1:
             icon: proxmox.png
-            href: https://192.168.0.50:8006
+            href: http://192.168.0.150:8006
             description: Proxmox cluster node 1
 
         - Proxmox pve2:
             icon: proxmox.png
-            href: https://192.168.0.51:8006
+            href: http://192.168.0.151:8006
             description: Proxmox cluster node 2
 
         - Proxmox pve3:
             icon: proxmox.png
-            href: https://192.168.0.52:8006
+            href: http://192.168.0.152:8006
             description: Proxmox cluster node 3
 
     - Public:
