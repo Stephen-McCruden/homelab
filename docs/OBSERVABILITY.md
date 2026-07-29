@@ -1,10 +1,10 @@
 # Observability
 
-The current platform provides metrics and dashboards. The next phase makes the
-monitoring state durable, then adds centralized logs, probing, and actionable
-alerts.
+The platform provides durable metrics, dashboards, Kubernetes logs, and
+Kubernetes events. Prometheus, Alertmanager, Grafana, Loki, and Alloy are
+managed through Flux.
 
-## Current Metrics Stack
+## Current Stack
 
 Flux deploys:
 
@@ -13,34 +13,57 @@ Flux deploys:
 - one Alertmanager replica
 - kube-state-metrics
 - node-exporter
-- the Grafana instance bundled with kube-prometheus-stack
+- standalone Grafana
+- single-binary Loki
+- one Grafana Alloy collector
 - Metrics Server
 - ServiceMonitors/PodMonitors for supported controllers
 
-Current retention:
+Current storage and retention:
 
-```text
-Prometheus: 7 days or 8 GB
-Storage:    ephemeral for Prometheus, Alertmanager, and Grafana
-```
+| Component | Longhorn claim | Retention |
+|---|---:|---:|
+| Prometheus | 30 GiB | 15 days, capped at 25 GB |
+| Alertmanager | 2 GiB | Operational state |
+| Grafana | 5 GiB | Dashboards and UI-managed settings |
+| Loki | 30 GiB | 14 days |
+| Alloy | 1 GiB | Collector positions and runtime state |
 
-Grafana provisions Prometheus as its default datasource. Longhorn is available,
-but the monitoring HelmRelease has not yet requested persistent volumes.
+Grafana provisions Prometheus as its default datasource and Loki as its log
+datasource. The kube-prometheus-stack chart creates the dashboard ConfigMaps;
+standalone Grafana discovers them with its dashboard sidecar.
+
+Alloy uses the Kubernetes API to collect:
+
+- Pod container logs from every namespace
+- Kubernetes events from every namespace
+
+The API-based collector avoids privileged containers and host filesystem
+mounts. Host journals and appliance syslog are separate later additions.
 
 ## Current Validation
 
 ```bash
 kubectl get helmrelease \
-  kube-prometheus-stack \
   --namespace monitoring
 
 kubectl get prometheus,alertmanager \
+  --namespace monitoring
+
+kubectl get pods,persistentvolumeclaim \
   --namespace monitoring
 
 kubectl get servicemonitor,podmonitor \
   --all-namespaces
 
 kubectl top nodes
+
+kubectl port-forward \
+  --namespace monitoring \
+  service/loki \
+  3100:3100
+
+curl -fsS http://127.0.0.1:3100/ready
 
 TAILNET_DOMAIN="<TAILNET_DOMAIN>"
 curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
@@ -50,37 +73,20 @@ Grafana currently retains both a Traefik route and a private Tailscale route.
 Remove the public route only after the private path and operator recovery
 procedure are proven.
 
-## Durable Metrics Plan
+Check Loki ingestion in Grafana Explore with:
 
-Starting allocations:
+```logql
+{cluster="homelab", source="kubernetes-pods"}
+{cluster="homelab", source="kubernetes-events"}
+```
 
-| Component | Longhorn claim | Retention |
-|---|---:|---:|
-| Prometheus | 30 GiB | 15 days, capped near 25 GB |
-| Alertmanager | 2 GiB | Operational state |
-| Grafana | 5 GiB | Dashboards and UI-managed settings |
+Single-binary Loki is appropriate for this lab. Distributed Loki would add
+operational cost without a workload that justifies it.
 
-Before changing Grafana, export anything created only through the UI. Content
-provisioned from Git is reproducible; the Grafana database is not.
+## Next Collection Scope
 
-## Target Logging Stack
+Add host-level collection only after the current Kubernetes log path is stable:
 
-Use:
-
-- Loki in monolithic mode
-- Grafana Alloy as the collector
-- Longhorn-backed local storage initially
-- an external object store when log survival beyond cluster loss is required
-
-For this lab, distributed Loki would add operational cost without a workload
-that justifies it.
-
-## Collection Scope
-
-Alloy DaemonSets should collect:
-
-- Kubernetes container logs
-- Kubernetes events
 - kubelet journal
 - containerd journal
 - firewalld journal
@@ -118,7 +124,7 @@ structured metadata.
 
 ## Retention
 
-Start with:
+Current retention:
 
 ```text
 Kubernetes and host logs: 14 days
@@ -128,17 +134,14 @@ Network/security logs:     30 days if capacity permits
 Measure ingestion and query use before increasing retention. Set hard storage
 and query limits so logging cannot evict application workloads.
 
-## Deployment Order
+## Next Work
 
-1. Capture the current ephemeral baseline and export UI-managed Grafana state.
-2. Persist Prometheus, Alertmanager, and Grafana on Longhorn.
-3. Verify Pod deletion, rescheduling, and retained data.
-4. Install monolithic Loki with a 30 GiB Longhorn PVC and 14-day retention.
-5. Provision Loki as a Grafana datasource.
-6. Install Alloy for Pod logs and Kubernetes events.
-7. Add host journals, then private TCP syslog ingestion.
-8. Add recording rules, alerts, and dashboards.
-9. Configure an off-cluster backup target and test restoration.
+1. Verify Prometheus, Grafana, and Loki data after Pod deletion and
+   rescheduling.
+2. Configure an off-cluster backup target and test restoration.
+3. Add host journals, then private TCP syslog ingestion.
+4. Add recording rules, alerts, and dashboards.
+5. Add private syslog ingestion for network and power equipment.
 
 ## Additional Monitoring
 

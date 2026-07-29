@@ -32,7 +32,7 @@ backup target outside the Kubernetes cluster.
 | Data locality | Best effort |
 | Storage reserve | 30% of each default disk |
 | Minimum free space | 25% |
-| Current PVC consumers | Linkding 5 GiB, Mealie 10 GiB, FreshRSS 5 GiB; all `ReadWriteOnce` |
+| Current PVC consumers | Linkding 5 GiB, Mealie 10 GiB, FreshRSS 5 GiB, Prometheus 30 GiB, Alertmanager 2 GiB, Grafana 5 GiB, Loki 30 GiB, Alloy 1 GiB; all `ReadWriteOnce` |
 | Off-cluster backup target | Not configured |
 | Restore proof | Not completed |
 
@@ -100,24 +100,24 @@ Test:
 
 Record time to recover and any manual step.
 
-## Planned Consumers
+## Current Allocations
 
 Initial allocations:
 
 | Workload | Starting size |
 |---|---:|
-| Prometheus | 20-30 GiB |
-| Alertmanager | 2-5 GiB |
-| Grafana | 5-10 GiB |
-| Loki | 30-50 GiB, governed by retention |
-| Linkding | 2-5 GiB |
-| Mealie | 10 GiB initially |
-| FreshRSS | 5 GiB initially |
+| Prometheus | 30 GiB |
+| Alertmanager | 2 GiB |
+| Grafana | 5 GiB |
+| Loki | 30 GiB, governed by 14-day retention |
+| Alloy | 1 GiB |
+| Linkding | 5 GiB |
+| Mealie | 10 GiB |
+| FreshRSS | 5 GiB |
 
-Linkding, Mealie, and FreshRSS already request persistent storage. Prometheus,
-Alertmanager, and Grafana remain ephemeral until their Helm values are
-migrated. Size every claim from measured usage and retention requirements, not
-only available capacity.
+These claims are thin-provisioned but their replicated data still consumes
+real node storage. Size future changes from measured use, retention, Longhorn's
+two-replica policy, and filesystem reserve rather than only claim totals.
 
 ## Backup Target
 
@@ -155,7 +155,7 @@ Define per workload:
 | Class | Example | Initial RPO | Initial RTO |
 |---|---|---:|---:|
 | Rebuildable | Homepage, static website | Git commit | 30-60 minutes |
-| Operational | Grafana config, Linkding, Mealie, FreshRSS | 24 hours | 2-4 hours |
+| Operational | Grafana config, Loki, Linkding, Mealie, FreshRSS | 24 hours | 2-4 hours |
 | Important personal data | Paperless, photos | 1-6 hours | 4-12 hours |
 
 These are proposed targets. Replace them with measured restore results.

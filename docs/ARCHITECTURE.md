@@ -134,7 +134,8 @@ The application-critical branch contains:
 - runtime secret synchronization
 - ACME issuers and wildcard certificate
 - Tailscale private ingress
-- Grafana, Homepage, Linkding, Mealie, FreshRSS, and the public website
+- Grafana, Loki, Alloy, Homepage, Linkding, Mealie, FreshRSS, and the public
+  website
 
 The node-metrics branch exists because secure kubelet serving certificates have
 a bootstrap dependency:
@@ -148,15 +149,16 @@ a bootstrap dependency:
 A failure in Metrics Server must be visible, but it must not prevent External
 Secrets, TLS, ingress, and normal applications from reconciling.
 
-### Clean-bootstrap caveat
+### Observability bootstrap order
 
-The bundled Grafana release references `grafana-admin-credentials` from the
-controller stage, while the ExternalSecret that creates it is applied in
-`infrastructure-configs`. An existing cluster can already have that Secret, but
-a clean cluster may stall before the configuration stage is allowed to run.
-The rebuild proof must either demonstrate that this ordering succeeds or move
-the credential-producing resource or Grafana release to a dependency-safe
-stage. Do not solve this with an undocumented manually created Secret.
+Longhorn installs before kube-prometheus-stack so Prometheus and Alertmanager
+claims can bind during a clean rebuild. Longhorn's ServiceMonitor is applied
+later in `infrastructure-configs`, after Prometheus Operator CRDs exist.
+
+Grafana is a standalone application rather than a kube-prometheus-stack
+subchart. Its Azure-backed administrator Secret is created by External Secrets
+before the application stage installs Grafana. Loki waits for the monitoring
+stack, and Alloy waits for Loki.
 
 ## Network Model
 
@@ -253,9 +255,11 @@ Current state:
 | Runtime secret source | Azure Key Vault |
 | SOPS recovery identity | Operator-controlled offline copy |
 | Kubernetes etcd | Single control-plane VM only |
-| Prometheus data | Ephemeral |
-| Alertmanager data | Ephemeral |
-| Grafana data | Ephemeral |
+| Prometheus data | 30 GiB Longhorn PVC, two replicas |
+| Alertmanager data | 2 GiB Longhorn PVC, two replicas |
+| Grafana data | 5 GiB Longhorn PVC, two replicas |
+| Loki data | 30 GiB Longhorn PVC, two replicas |
+| Alloy state | 1 GiB Longhorn PVC, two replicas |
 | Linkding data | 5 GiB Longhorn PVC, two replicas |
 | Mealie data | 10 GiB Longhorn PVC, two replicas |
 | FreshRSS data | 5 GiB Longhorn PVC, two replicas |

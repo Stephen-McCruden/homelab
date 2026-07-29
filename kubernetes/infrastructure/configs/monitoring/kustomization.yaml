@@ -1,0 +1,9 @@
+# FILE PATH: kubernetes/infrastructure/configs/monitoring/kustomization.yaml
+# PURPOSE: Apply monitoring resources after Prometheus Operator CRDs exist.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - flux-podmonitor.yaml
+  - longhorn-servicemonitor.yaml

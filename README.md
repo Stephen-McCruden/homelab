@@ -24,7 +24,7 @@ deliberately interactive security controls.
 | Host operating system | Ansible | Packages, containerd, Kubernetes tools, firewall, SSH hardening, and prerequisites |
 | Kubernetes cluster | Ansible and kubeadm | One control plane, two workers, Cilium networking, and secure kubelet serving certificates |
 | GitOps control plane | Ansible and Flux | Flux bootstrap, SOPS key provisioning, and reconciliation gates |
-| Shared platform | Flux | cert-manager, External Secrets, Longhorn, MetalLB, Prometheus, Alertmanager, Grafana, Tailscale Operator, Traefik, kubelet CSR approver, and Metrics Server |
+| Shared platform | Flux | cert-manager, External Secrets, Longhorn, MetalLB, Prometheus, Alertmanager, Loki, Alloy, Grafana, Tailscale Operator, Traefik, kubelet CSR approver, and Metrics Server |
 | Applications | Flux | Public website plus private Homepage, Linkding, Mealie, and FreshRSS services |
 
 The included example topology uses one control-plane VM and two worker VMs
@@ -46,11 +46,13 @@ The following cold-path fixes are encoded in `main`:
 - Flux separates the application-critical dependency path from the node-metrics
   path.
 - Longhorn provides a two-replica default StorageClass for persistent
-  workloads; Linkding, Mealie, and FreshRSS use `ReadWriteOnce` claims.
+  workloads; application and observability state use `ReadWriteOnce` claims.
 - External Secrets restores ACME, FreshRSS, Grafana, Linkding, and Tailscale
   credentials from Azure Key Vault.
 - The Tailscale Operator provides private HTTPS access to Homepage, Linkding,
   Mealie, FreshRSS, and Grafana.
+- Prometheus, Alertmanager, Grafana, Loki, and Alloy retain operational state
+  on Longhorn; Alloy sends Kubernetes logs and events to Loki.
 - Traefik uses fixed NodePorts so router rules survive Service recreation.
 - Flux image automation promotes immutable preview and production website
   images through Git.
@@ -205,10 +207,6 @@ Expected outcomes:
 ## Current Limits
 
 - One control-plane node and one etcd member.
-- Clean-slate Grafana credential ordering still needs proof: bundled Grafana is
-  installed in the controller stage, while its ExternalSecret is applied in
-  the following configuration stage.
-- Prometheus, Alertmanager, and Grafana data are currently ephemeral.
 - Longhorn currently uses the VM root filesystems; dedicated data disks are not
   provisioned.
 - No off-cluster Longhorn backup target or tested persistent-volume restore.
@@ -222,9 +220,9 @@ Expected outcomes:
 ## Next Milestones
 
 1. Record the current platform baseline and verification evidence.
-2. Persist Prometheus, Alertmanager, and Grafana on Longhorn.
-3. Add Loki and Grafana Alloy for Kubernetes logs and events.
-4. Configure an off-cluster backup target and complete restore tests.
+2. Verify observability data survives Pod deletion and rescheduling.
+3. Configure an off-cluster backup target and complete restore tests.
+4. Add host journals and private appliance syslog to Alloy.
 5. Complete and record a clean rebuild proof with measured recovery time.
 6. Add update automation, risk review, and human-approved ChatOps.
 

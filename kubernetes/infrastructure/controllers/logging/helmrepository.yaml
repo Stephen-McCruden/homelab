@@ -1,0 +1,12 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/logging/helmrepository.yaml
+# PURPOSE: Register the official Grafana Helm repository for Loki and Alloy.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://grafana.github.io/helm-charts

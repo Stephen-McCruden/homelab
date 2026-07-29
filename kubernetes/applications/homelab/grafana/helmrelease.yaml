@@ -1,6 +1,7 @@
 # FILE PATH:
 # kubernetes/applications/homelab/grafana/helmrelease.yaml
-# PURPOSE: Deploy Grafana with Azure-managed credentials and Traefik HTTPS.
+# PURPOSE: Deploy persistent Grafana with Azure-managed credentials, metrics
+#          and logs datasources, dashboards, and Traefik HTTPS.
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -14,11 +15,11 @@ spec:
   chart:
     spec:
       chart: grafana
-      version: "10.5.15"
+      version: "12.10.0"
 
       sourceRef:
         kind: HelmRepository
-        name: grafana
+        name: grafana-community
         namespace: flux-system
 
       interval: 1h
@@ -43,6 +44,9 @@ spec:
       passwordKey: admin-password
 
     replicas: 1
+
+    deploymentStrategy:
+      type: Recreate
 
     service:
       type: ClusterIP
@@ -90,8 +94,31 @@ spec:
             isDefault: true
             editable: false
 
+          - name: Loki
+            type: loki
+            uid: loki
+            access: proxy
+            url: >-
+              http://loki-gateway.monitoring.svc.cluster.local
+            isDefault: false
+            editable: false
+            jsonData:
+              maxLines: 1000
+
+    sidecar:
+      dashboards:
+        enabled: true
+        searchNamespace: monitoring
+        label: grafana_dashboard
+        labelValue: "1"
+
     persistence:
-      enabled: false
+      type: pvc
+      enabled: true
+      storageClassName: longhorn
+      accessModes:
+        - ReadWriteOnce
+      size: 5Gi
 
     resources:
       requests:

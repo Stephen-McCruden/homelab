@@ -8,5 +8,6 @@ resources:
   - cert-manager
   - external-secrets
   - metallb
+  - monitoring
   - tailscale
   - traefik

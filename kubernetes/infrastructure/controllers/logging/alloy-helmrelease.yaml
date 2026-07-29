@@ -1,0 +1,207 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/logging/alloy-helmrelease.yaml
+# PURPOSE: Collect Kubernetes Pod logs and events and forward them to Loki.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: monitoring
+spec:
+  interval: 30m
+  timeout: 10m
+
+  dependsOn:
+    - name: loki
+      namespace: monitoring
+
+  chart:
+    spec:
+      chart: alloy
+      version: "1.11.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 1h
+
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+
+  upgrade:
+    crds: CreateReplace
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+
+  rollback:
+    timeout: 5m
+    cleanupOnFail: true
+
+  values:
+    global:
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 473
+        runAsGroup: 473
+        fsGroup: 473
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+    controller:
+      type: statefulset
+      replicas: 1
+      revisionHistoryLimit: 3
+      terminationGracePeriodSeconds: 30
+
+      volumeClaimTemplates:
+        - metadata:
+            name: data
+          spec:
+            storageClassName: longhorn
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+
+    alloy:
+      enableReporting: false
+      storagePath: /var/lib/alloy
+
+      mounts:
+        extra:
+          - name: data
+            mountPath: /var/lib/alloy
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+      configMap:
+        content: |-
+          logging {
+            level  = "info"
+            format = "logfmt"
+          }
+
+          discovery.kubernetes "pods" {
+            role = "pod"
+          }
+
+          discovery.relabel "pod_logs" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_node_name"]
+              target_label  = "node"
+            }
+
+            rule {
+              source_labels = [
+                "__meta_kubernetes_pod_label_app_kubernetes_io_name",
+              ]
+              target_label = "workload"
+            }
+          }
+
+          loki.source.kubernetes "pod_logs" {
+            targets    = discovery.relabel.pod_logs.output
+            forward_to = [loki.process.pod_logs.receiver]
+          }
+
+          loki.process "pod_logs" {
+            forward_to = [loki.write.cluster.receiver]
+
+            stage.static_labels {
+              values = {
+                source = "kubernetes-pods",
+              }
+            }
+          }
+
+          loki.source.kubernetes_events "cluster_events" {
+            log_format = "logfmt"
+            forward_to = [loki.process.cluster_events.receiver]
+          }
+
+          loki.process "cluster_events" {
+            forward_to = [loki.write.cluster.receiver]
+
+            stage.static_labels {
+              values = {
+                source = "kubernetes-events",
+              }
+            }
+
+            stage.logfmt {
+              mapping = {
+                kind      = "",
+                namespace = "",
+                reason    = "",
+                severity  = "type",
+              }
+            }
+
+            stage.labels {
+              values = {
+                kind      = "",
+                namespace = "",
+                reason    = "",
+                severity  = "",
+              }
+            }
+          }
+
+          loki.write "cluster" {
+            endpoint {
+              url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+            }
+
+            external_labels = {
+              cluster = "homelab",
+            }
+          }
+
+    configReloader:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+    serviceMonitor:
+      enabled: true
+      interval: 30s
