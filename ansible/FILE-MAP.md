@@ -26,6 +26,7 @@
 |---|---|
 | `package_manager` | Serialize DNF5 operations and perform bounded recovery |
 | `prereqs` | Packages, kernel modules, sysctls, swap, and zram |
+| `longhorn_prereqs` | iSCSI/NFS packages, `iscsi_tcp`, and the iSCSI service |
 | `container_runtime` | containerd 2.x with systemd cgroups |
 | `kubernetes_node` | Kubernetes repository and packages |
 | `firewall` | Source- and port-restricted firewalld configuration |
@@ -49,7 +50,7 @@
 
 | Role | Purpose |
 |---|---|
-| `flux_bootstrap` | Install Flux CLI, provision `sops-age`, bootstrap GitHub, and wait for all six Kustomizations |
+| `flux_bootstrap` | Install Flux CLI, provision `sops-age`, bootstrap GitHub, and wait for its six configured core Kustomizations |
 
 ## Procedures
 

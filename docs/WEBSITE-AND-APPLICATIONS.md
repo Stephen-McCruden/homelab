@@ -1,7 +1,17 @@
 # Website and Applications
 
-This document is the application roadmap. It favors workloads that are useful,
-demonstrate sound platform engineering, and fit the current three-node cluster.
+This document describes the applications currently deployed and the standards
+for adding another workload to this three-node cluster.
+
+## Current Application Set
+
+| Application | Exposure | State |
+|---|---|---|
+| Production website | Public Traefik ingress | Stateless, two replicas |
+| Website preview | Public Traefik ingress | Stateless, two replicas, no-index middleware |
+| Homepage | Tailscale-only | Stateless, Git-managed configuration |
+| Linkding | Tailscale-only | One replica, 5 GiB Longhorn PVC |
+| Grafana | Tailscale plus retained Traefik route | Monitoring UI; storage is still ephemeral |
 
 ## Website Decision
 
@@ -24,10 +34,10 @@ sequence. That is unnecessary for a Git-native technical portfolio.
 
 ## Content and Images
 
-Recommended separate repository:
+The website source and content belong in a separate repository:
 
 ```text
-mccruden-website/
+portfolio-website/
 ├── src/
 │   ├── content/
 │   │   └── blog/
@@ -83,9 +93,10 @@ write Markdown/MDX and add images
   -> lint, type-check, and build
   -> build immutable container image
   -> push image to GHCR
-  -> update the pinned image digest/tag in GitOps
+  -> Flux selects the channel-specific immutable image
+  -> image automation commits the selected reference to Git
   -> Flux deploys two replicas
-  -> Traefik serves mccruden.com and www.mccruden.com
+  -> Traefik serves the configured public hostname
 ```
 
 Deployment requirements:
@@ -121,13 +132,17 @@ Purpose:
 - health indicators and selected service widgets
 - Git-managed YAML configuration
 
-Deployment:
+Current deployment:
 
 - stateless
-- LAN/Tailscale only
+- Tailscale only
 - configuration in Git, not edited in the Pod
-- minimum RBAC if Kubernetes discovery is enabled
+- read-only discovery RBAC for the displayed Kubernetes resources
 - no broad cluster-admin ServiceAccount
+
+Before using the repository elsewhere, replace the dashboard title, tailnet
+domain, Proxmox links, public-site links, and repository bookmark in the
+Homepage ConfigMap and Deployment.
 
 Homepage is not a monitoring system. Grafana, Prometheus, and alerts remain the
 source of operational truth.
@@ -140,31 +155,31 @@ Purpose:
 - tags, notes, and browser extensions
 - optional archived-page variant
 
-Deployment:
+Current deployment:
 
-- private hostname through LAN/Tailscale
+- private Tailscale hostname
 - one replica
-- Longhorn PVC
+- 5 GiB Longhorn PVC
 - SQLite initially
-- scheduled export/database backup to the external target
-- restore test before relying on it
+- credentials restored through External Secrets
+- `Recreate` update strategy so only one Pod writes the `ReadWriteOnce` volume
 
-Do not deploy Linkding before storage and backup are proven.
+An off-cluster backup and restore test are still required before the data is
+treated as recoverable.
 
-## Recommended Application Queue
+## Optional Future Workloads
 
-| Order | Application | Value | Data risk | Notes |
-|---:|---|---|---|---|
-| 1 | Public Astro website | Portfolio and blog | Low | Stateless; deploy after rebuild proof |
-| 2 | Homepage | Daily service dashboard | Low | Private and stateless |
-| 3 | Linkding | Bookmark knowledge base | Medium | Needs Longhorn and backup |
-| 4 | Gatus or Uptime Kuma | Friendly service status | Low/medium | Blackbox Exporter remains primary SLI source |
-| 5 | Mealie | Household recipes and meal planning | Medium | Useful for a pescatarian household; SQLite is adequate initially |
-| 6 | ntfy | Alert delivery | Medium | Keep registration and administration private |
-| 7 | FreshRSS or Miniflux | Technical news/RSS | Medium | Small footprint; requires backed-up state |
-| 8 | Paperless-ngx | Searchable personal documents | High | Add only after strong auth, backups, and restore tests |
-| 9 | Actual Budget | Private budgeting | High | Useful, but financial data raises the security bar |
-| 10 | NetBox | Network source of truth | Medium/high | Valuable when VLANs, racks, circuits, and IPAM grow |
+No additional application is required to complete the current platform. If the
+scope grows later, choose workloads that justify their storage, backup, access,
+and operational cost.
+
+| Application | Value | Data risk | Notes |
+|---|---|---|---|
+| Gatus or Uptime Kuma | Friendly service status | Low/medium | Complements, rather than replaces, Prometheus |
+| ntfy | Alert delivery | Medium | Keep registration and administration private |
+| Mealie | Household recipes and meal planning | Medium | Requires tested SQLite backup and restore |
+| FreshRSS or Miniflux | Technical news/RSS | Medium | Small footprint; requires backed-up state |
+| NetBox | Network source of truth | Medium/high | More useful as VLAN, rack, circuit, and IPAM data grows |
 
 ## Applications to Delay
 
@@ -175,9 +190,9 @@ GPU strategy, off-site backup, and full restore are proven.
 
 ### Vaultwarden
 
-The operator already uses `pass`, GPG, and YubiKey-backed keys. Adding a second
-password system creates a new high-impact security boundary without a current
-need.
+A password manager creates a high-impact security boundary. Deploy one only
+when its independent backup, authentication, and recovery controls are
+stronger than the system it would replace.
 
 ### Self-hosted Git forge or registry
 
@@ -210,15 +225,14 @@ Every new application must have:
 
 ## Recommended Order From Here
 
-1. Prove one clean rebuild.
-2. Deploy the stateless Astro website and Homepage.
-3. Add Longhorn prerequisites, Longhorn, and external backups.
-4. Persist the monitoring stack.
-5. Add Loki and Alloy.
-6. Deploy Linkding.
-7. Add Mealie and alert delivery.
-8. Add high-sensitivity applications only after access and restore controls are
-   mature.
+1. Customize Homepage for the target environment.
+2. Persist Prometheus, Alertmanager, and Grafana.
+3. Add Loki and Alloy.
+4. Configure an off-cluster Longhorn backup target and prove Linkding restore.
+5. Prove a clean rebuild and record measured recovery results.
+6. Add alert delivery and update automation.
+7. Add another stateful application only after the same backup standard can be
+   met.
 
 ## References
 

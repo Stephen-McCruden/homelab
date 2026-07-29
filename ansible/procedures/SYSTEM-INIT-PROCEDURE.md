@@ -36,7 +36,7 @@ YubiKey:
 ```bash
 ssh -o IdentitiesOnly=yes \
   -i "$HOME/.ssh/id_ed25519_sk" \
-  stoof@192.168.0.52 true
+  "<ADMIN_USER>@<CONTROL_PLANE_IP>" true
 ```
 
 Repeat direct SSH for both workers.
@@ -63,12 +63,13 @@ ansible-playbook playbooks/system-init.yml
 4. install prerequisites
 5. configure kernel modules and sysctls
 6. disable swap and zram
-7. install and configure containerd
-8. install Kubernetes packages
-9. configure firewalld
-10. harden SSH
-11. set SELinux permissive
-12. verify final state
+7. install Longhorn host prerequisites and enable iSCSI
+8. install and configure containerd
+9. install Kubernetes packages
+10. configure firewalld
+11. harden SSH
+12. set SELinux permissive
+13. verify final state
 
 ## Acceptance
 
@@ -84,6 +85,11 @@ ansible kubernetes_cluster \
   --become \
   --module-name command \
   --args='swapon --show'
+
+ansible kubernetes_cluster \
+  --become \
+  --module-name command \
+  --args='systemctl is-active iscsid'
 ```
 
 The services should be active and the swap output empty.

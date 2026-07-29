@@ -1,7 +1,8 @@
 # Observability
 
-The current platform provides metrics. The next phase adds durable metrics,
-centralized logs, external-device syslog, probing, and actionable alerts.
+The current platform provides metrics and dashboards. The next phase makes the
+monitoring state durable, then adds centralized logs, probing, and actionable
+alerts.
 
 ## Current Metrics Stack
 
@@ -12,7 +13,7 @@ Flux deploys:
 - one Alertmanager replica
 - kube-state-metrics
 - node-exporter
-- standalone Grafana
+- the Grafana instance bundled with kube-prometheus-stack
 - Metrics Server
 - ServiceMonitors/PodMonitors for supported controllers
 
@@ -20,10 +21,11 @@ Current retention:
 
 ```text
 Prometheus: 7 days or 8 GB
-Storage:    ephemeral
+Storage:    ephemeral for Prometheus, Alertmanager, and Grafana
 ```
 
-Grafana currently provisions Prometheus as its default datasource.
+Grafana provisions Prometheus as its default datasource. Longhorn is available,
+but the monitoring HelmRelease has not yet requested persistent volumes.
 
 ## Current Validation
 
@@ -39,8 +41,27 @@ kubectl get servicemonitor,podmonitor \
   --all-namespaces
 
 kubectl top nodes
-curl -fsSI https://grafana.mccruden.com
+
+TAILNET_DOMAIN="<TAILNET_DOMAIN>"
+curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
 ```
+
+Grafana currently retains both a Traefik route and a private Tailscale route.
+Remove the public route only after the private path and operator recovery
+procedure are proven.
+
+## Durable Metrics Plan
+
+Starting allocations:
+
+| Component | Longhorn claim | Retention |
+|---|---:|---:|
+| Prometheus | 30 GiB | 15 days, capped near 25 GB |
+| Alertmanager | 2 GiB | Operational state |
+| Grafana | 5 GiB | Dashboards and UI-managed settings |
+
+Before changing Grafana, export anything created only through the UI. Content
+provisioned from Git is reproducible; the Grafana database is not.
 
 ## Target Logging Stack
 
@@ -109,15 +130,15 @@ and query limits so logging cannot evict application workloads.
 
 ## Deployment Order
 
-1. Install and prove Longhorn plus external backups.
-2. Persist Prometheus, Alertmanager, and Grafana.
-3. Install monolithic Loki with a conservative PVC.
-4. Provision Loki as a Grafana datasource.
-5. Install Alloy for Pod logs and Kubernetes events.
-6. Add host journals.
-7. Add private TCP syslog ingestion.
+1. Capture the current ephemeral baseline and export UI-managed Grafana state.
+2. Persist Prometheus, Alertmanager, and Grafana on Longhorn.
+3. Verify Pod deletion, rescheduling, and retained data.
+4. Install monolithic Loki with a 30 GiB Longhorn PVC and 14-day retention.
+5. Provision Loki as a Grafana datasource.
+6. Install Alloy for Pod logs and Kubernetes events.
+7. Add host journals, then private TCP syslog ingestion.
 8. Add recording rules, alerts, and dashboards.
-9. Test loss of one node and restore from backup.
+9. Configure an off-cluster backup target and test restoration.
 
 ## Additional Monitoring
 

@@ -12,9 +12,9 @@ The project has two documentation goals:
 2. The operator can rebuild this lab from loss without relying on remembered
    commands or undocumented cluster changes.
 
-This is an **operator-assisted reproducible build**. YubiKey touches, a
-short-lived GitHub token, and access to external secret stores are deliberately
-interactive security controls.
+This is an **operator-assisted reproducible build**. A short-lived GitHub token,
+access to external secret stores, and any configured hardware-key touches are
+deliberately interactive security controls.
 
 ## What the Repository Builds
 
@@ -24,20 +24,14 @@ interactive security controls.
 | Host operating system | Ansible | Packages, containerd, Kubernetes tools, firewall, SSH hardening, and prerequisites |
 | Kubernetes cluster | Ansible and kubeadm | One control plane, two workers, Cilium networking, and secure kubelet serving certificates |
 | GitOps control plane | Ansible and Flux | Flux bootstrap, SOPS key provisioning, and reconciliation gates |
-| Shared platform | Flux | cert-manager, External Secrets, MetalLB, Prometheus, Alertmanager, Traefik, kubelet CSR approver, and Metrics Server |
-| Applications | Flux | Grafana today; storage, logging, website, and utility applications next |
+| Shared platform | Flux | cert-manager, External Secrets, Longhorn, MetalLB, Prometheus, Alertmanager, Grafana, Tailscale Operator, Traefik, kubelet CSR approver, and Metrics Server |
+| Applications | Flux | Public website, private Homepage dashboard, and Longhorn-backed Linkding |
 
-Reference nodes:
-
-| Kubernetes node | Address | Proxmox node | Role |
-|---|---:|---|---|
-| `k8s-worker-01` | `192.168.0.50` | `pve1` | Worker |
-| `k8s-worker-02` | `192.168.0.51` | `pve2` | Worker |
-| `k8s-master-01` | `192.168.0.52` | `pve3` | Control plane |
-
-The exact addresses are reference-environment values, not requirements of the
-design. A reproducer must change Terraform, Ansible, MetalLB, ingress, public
-DNS, and router configuration together.
+The included example topology uses one control-plane VM and two worker VMs
+placed across three Proxmox nodes. VM placement, sizing, addresses, DNS,
+storage, ingress hostnames, and external-service identifiers are deployment
+inputs. Start with [Environment setup](docs/ENVIRONMENT-SETUP.md) before
+applying the repository in another lab.
 
 ## Current State
 
@@ -51,13 +45,20 @@ The following cold-path fixes are encoded in `main`:
   CSRs before Metrics Server is treated as healthy.
 - Flux separates the application-critical dependency path from the node-metrics
   path.
-- External Secrets restores the Cloudflare token, Grafana credentials, and the
-  persistent Let's Encrypt production ACME account key from Azure Key Vault.
+- Longhorn provides a two-replica default StorageClass for persistent
+  workloads; Linkding currently uses a 5 GiB claim.
+- External Secrets restores ACME, Grafana, Linkding, and Tailscale credentials
+  from Azure Key Vault.
+- The Tailscale Operator provides private HTTPS access to Homepage, Linkding,
+  and Grafana.
 - Traefik uses fixed NodePorts so router rules survive Service recreation.
+- Flux image automation promotes immutable preview and production website
+  images through Git.
 
 The repository is a **rebuild candidate** until the current commit completes a
-clean destroy-to-green test without an undocumented repair. Persistent
-application-data restore is not implemented yet.
+clean destroy-to-green test without an undocumented repair. Longhorn provides
+in-cluster replication, but off-cluster backup and application-data restore
+are not implemented yet.
 
 ## Architecture at a Glance
 
@@ -72,8 +73,9 @@ Proxmox VE
   └─ Fedora VMs
        └─ kubeadm + containerd + Cilium
             └─ Flux
-                 ├─ controllers -> configs -> applications
-                 └─ kubelet CSR approver -> Metrics Server
+                 ├─ controllers -> configs -> Tailscale -> applications
+                 ├─ kubelet CSR approver -> Metrics Server
+                 └─ website image selection -> Git commit
 ```
 
 The cluster has a single API server and single etcd member. Application
@@ -130,7 +132,7 @@ manual change.
 
 ### Operate and recover
 
-- [Operations](docs/OPERATIONS.md)
+- [Operations quick reference](docs/OPERATIONS.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Storage and backups](docs/STORAGE-AND-BACKUPS.md)
 - [Observability](docs/OBSERVABILITY.md)
@@ -138,7 +140,7 @@ manual change.
 
 ### Extend the platform
 
-- [Website and application plan](docs/WEBSITE-AND-APPLICATIONS.md)
+- [Website and applications](docs/WEBSITE-AND-APPLICATIONS.md)
 - [Terraform reference](terraform/README.md)
 - [Ansible reference](ansible/README.md)
 - [Ansible file map](ansible/FILE-MAP.md)
@@ -185,39 +187,46 @@ kubectl get helmreleases --all-namespaces
 kubectl top nodes
 kubectl get clusterissuer
 kubectl get certificate --all-namespaces
-curl -fsSI https://grafana.mccruden.com
+kubectl get volumes.longhorn.io --namespace longhorn-system
+kubectl get ingress --all-namespaces
 ```
 
 Expected outcomes:
 
 - All three nodes are `Ready`.
-- All six Flux Kustomizations are `Ready=True`.
+- Every Flux Kustomization is `Ready=True`.
 - Every managed HelmRelease is `Ready=True`.
 - Metrics Server reports all nodes.
 - Both ACME ClusterIssuers and the wildcard certificate are Ready.
-- The public HTTPS request validates normally without `-k`.
+- Longhorn volumes are healthy.
+- Public and private HTTPS endpoints validate normally without bypassing TLS.
 - A second run of every Ansible playbook has no failed or unreachable hosts.
 
 ## Current Limits
 
 - One control-plane node and one etcd member.
+- Clean-slate Grafana credential ordering still needs proof: bundled Grafana is
+  installed in the controller stage, while its ExternalSecret is applied in
+  the following configuration stage.
 - Prometheus, Alertmanager, and Grafana data are currently ephemeral.
-- No automated persistent-volume restore.
+- Longhorn currently uses the VM root filesystems; dedicated data disks are not
+  provisioned.
+- No off-cluster Longhorn backup target or tested persistent-volume restore.
 - Router, Proxmox, Cloudflare DNS, Azure Key Vault, HCP Terraform, and the SOPS
-  recovery key are external dependencies.
+  recovery key are external dependencies. Private endpoints additionally
+  depend on Tailscale.
 - SELinux is enabled in permissive mode as a documented Fedora compatibility
   decision.
 - Public applications are unavailable during a complete cluster rebuild.
 
 ## Next Milestones
 
-1. Complete and record a clean rebuild proof.
-2. Add dedicated virtual disks and Longhorn prerequisites through
-   Terraform and Ansible.
-3. Add Longhorn, an external backup target, and tested restore procedures.
-4. Persist Prometheus, Alertmanager, and Grafana.
-5. Add Loki and Grafana Alloy for Kubernetes, journal, and syslog collection.
-6. Deploy the self-hosted Astro website, Homepage dashboard, and Linkding.
+1. Record the current platform baseline and verification evidence.
+2. Persist Prometheus, Alertmanager, and Grafana on Longhorn.
+3. Add Loki and Grafana Alloy for Kubernetes logs and events.
+4. Configure an off-cluster backup target and complete restore tests.
+5. Complete and record a clean rebuild proof with measured recovery time.
+6. Add update automation, risk review, and human-approved ChatOps.
 
 The ordered design is maintained in
 [Website and applications](docs/WEBSITE-AND-APPLICATIONS.md),

@@ -90,9 +90,13 @@ validate Kubernetes API
   -> bootstrap GitHub only when absent
   -> verify SSH deploy-key Secret
   -> wait for Flux controllers and Git source
-  -> wait for six managed Kustomizations
+  -> wait for the six core Kustomizations configured in the role
   -> run flux check
 ```
+
+Flux continues reconciling the Tailscale Operator, Tailscale ingress
+configuration, and website image automation after those core checks. Validate
+the complete graph during acceptance.
 
 ## Pull the Generated Commit
 
@@ -125,6 +129,9 @@ infrastructure-configs
 applications
 infrastructure-kubelet-csr-approver
 infrastructure-metrics-server
+infrastructure-tailscale-operator
+infrastructure-tailscale-ingress
+<WEBSITE_IMAGE_AUTOMATION_KUSTOMIZATION>
 ```
 
 Every Ready condition must be `True`.

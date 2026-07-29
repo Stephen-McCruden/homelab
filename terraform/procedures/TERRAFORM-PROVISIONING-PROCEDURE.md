@@ -55,6 +55,7 @@ Review:
 - CPU and memory
 - datastore IDs
 - root-disk size
+- capacity required by Longhorn data on the root disk
 - Fedora image URL and filename
 - static addresses, gateway, and DNS
 - injected public SSH keys
@@ -79,7 +80,9 @@ This removes only the explicitly named local plan file.
 ## Verify VM Readiness
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+NODE_ADDRESSES=("<WORKER_1_IP>" "<WORKER_2_IP>" "<CONTROL_PLANE_IP>")
+
+for address in "${NODE_ADDRESSES[@]}"; do
   ping -c 2 "$address"
 done
 ```
@@ -87,21 +90,23 @@ done
 YubiKey-backed SSH:
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+ADMIN_USER="<ADMIN_USER>"
+
+for address in "${NODE_ADDRESSES[@]}"; do
   ssh -o IdentitiesOnly=yes \
     -i "$HOME/.ssh/id_ed25519_sk" \
-    "stoof@${address}" true
+    "${ADMIN_USER}@${address}" true
 done
 ```
 
 File-backed SSH:
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+for address in "${NODE_ADDRESSES[@]}"; do
   ssh -o BatchMode=yes \
     -o IdentitiesOnly=yes \
     -i "$HOME/.ssh/id_ed25519" \
-    "stoof@${address}" true
+    "${ADMIN_USER}@${address}" true
 done
 ```
 
@@ -134,7 +139,8 @@ terraform plan -destroy
 ```
 
 Confirm the workspace, Git state, SOPS recovery identity, Azure secrets,
-Terraform variables, SSH keys, and external application backups.
+Terraform variables, SSH keys, Tailscale recovery inputs, and external
+application backups. The current root disks also contain all Longhorn replicas.
 
 Then:
 

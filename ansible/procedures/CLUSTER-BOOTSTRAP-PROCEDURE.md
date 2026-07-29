@@ -25,7 +25,7 @@ ansible-lint --profile min playbooks/cluster-bootstrap.yml
 Confirm the endpoint is unused on a fresh build and reachable after init:
 
 ```text
-192.168.0.52:6443
+<CONTROL_PLANE_IP>:6443
 ```
 
 ## Execute
