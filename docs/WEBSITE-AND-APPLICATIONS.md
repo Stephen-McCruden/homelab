@@ -13,7 +13,7 @@ for adding another workload to this three-node cluster.
 | Linkding | Tailscale-only | One replica, 5 GiB Longhorn PVC |
 | Mealie | Tailscale-only | One replica, 10 GiB Longhorn PVC |
 | FreshRSS | Tailscale-only | One replica, 5 GiB Longhorn PVC |
-| Grafana | Tailscale plus retained Traefik route | Monitoring UI; storage is still ephemeral |
+| Grafana | Tailscale plus retained Traefik route | Monitoring UI; 5 GiB Longhorn PVC |
 
 ## Website Decision
 
@@ -258,9 +258,9 @@ Every new application must have:
 ## Recommended Order From Here
 
 1. Customize Homepage for the target environment.
-2. Persist Prometheus, Alertmanager, and Grafana.
-3. Add Loki and Alloy.
-4. Configure an off-cluster Longhorn backup target and prove Linkding restore.
+2. Verify observability data after Pod deletion and rescheduling.
+3. Configure an off-cluster Longhorn backup target and prove Linkding restore.
+4. Add host journals and private appliance syslog to Alloy.
 5. Prove a clean rebuild and record measured recovery results.
 6. Add alert delivery and update automation.
 7. Add backup and restore procedures for Mealie and FreshRSS before relying on

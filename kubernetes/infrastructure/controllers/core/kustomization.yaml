@@ -10,6 +10,7 @@ resources:
   - ../cert-manager
   - ../external-secrets
   - ../kube-prometheus-stack
+  - ../logging
   - ../longhorn
   - ../metallb
   - ../traefik

@@ -68,6 +68,13 @@ data:
             namespace: monitoring
             app: grafana
 
+        - Loki Logs:
+            icon: loki.png
+            href: https://grafana.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}/explore
+            description: Search Kubernetes logs and events
+            namespace: monitoring
+            app: loki
+
     - Infrastructure:
         - Proxmox pve1:
             icon: proxmox.png

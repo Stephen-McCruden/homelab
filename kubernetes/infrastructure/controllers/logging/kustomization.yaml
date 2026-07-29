@@ -1,0 +1,11 @@
+# FILE PATH:
+# kubernetes/infrastructure/controllers/logging/kustomization.yaml
+# PURPOSE: Deploy Loki first, then Grafana Alloy, through Flux and Helm.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - helmrepository.yaml
+  - loki-helmrelease.yaml
+  - alloy-helmrelease.yaml

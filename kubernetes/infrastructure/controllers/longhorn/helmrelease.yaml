@@ -11,10 +11,6 @@ spec:
   interval: 30m
   timeout: 20m
 
-  dependsOn:
-    - name: kube-prometheus-stack
-      namespace: monitoring
-
   chart:
     spec:
       chart: longhorn
@@ -90,5 +86,7 @@ spec:
 
     metrics:
       serviceMonitor:
-        enabled: true
-        interval: 30s
+        # The ServiceMonitor is applied in infrastructure-configs after
+        # kube-prometheus-stack installs its CRDs. This keeps Longhorn ahead
+        # of the monitoring stack during a clean rebuild.
+        enabled: false

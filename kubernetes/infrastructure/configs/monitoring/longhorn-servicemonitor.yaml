@@ -1,0 +1,25 @@
+# FILE PATH:
+# kubernetes/infrastructure/configs/monitoring/longhorn-servicemonitor.yaml
+# PURPOSE: Scrape Longhorn manager metrics after Prometheus CRDs are ready.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: longhorn-prometheus-servicemonitor
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: longhorn
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: homelab-platform
+spec:
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+
+  selector:
+    matchLabels:
+      app: longhorn-manager
+
+  endpoints:
+    - port: manager
+      interval: 30s
