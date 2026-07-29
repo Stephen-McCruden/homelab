@@ -1,7 +1,8 @@
 # Storage and Backups
 
-This document records the target storage design. Longhorn is not installed yet,
-and current monitoring/application data is intentionally ephemeral.
+Longhorn is installed and provides the cluster's default persistent
+StorageClass. This document records the current design, its limits, and the work
+still required before full-cluster destruction is safe.
 
 ## Non-Negotiable Distinction
 
@@ -18,39 +19,61 @@ independent backup against:
 No stateful application is complete until its restore has been tested from a
 backup target outside the Kubernetes cluster.
 
-## Target Disk Layout
+## Current Implementation
 
-Each Kubernetes VM should have:
+| Item | Current state |
+|---|---|
+| Host prerequisites | Managed by Ansible on every Kubernetes node |
+| Data path | `/var/lib/longhorn` on each VM root filesystem |
+| Data engine | Longhorn V1 |
+| Filesystem | ext4 |
+| Default replica count | 2 |
+| Reclaim policy | `Retain` |
+| Data locality | Best effort |
+| Storage reserve | 30% of each default disk |
+| Minimum free space | 25% |
+| Current PVC consumer | Linkding, 5 GiB `ReadWriteOnce` |
+| Off-cluster backup target | Not configured |
+| Restore proof | Not completed |
 
-```text
-scsi0  Fedora root disk
-scsi1  dedicated Longhorn data disk
+Ansible installs `iscsi-initiator-utils`, `nfs-utils`, `cryptsetup`, and
+device-mapper support; loads `iscsi_tcp`; and enables `iscsid`. Flux installs
+Longhorn and makes its StorageClass the default.
+
+Quick validation:
+
+```bash
+kubectl get storageclass
+kubectl get helmrelease longhorn --namespace longhorn-system
+kubectl get nodes.longhorn.io,volumes.longhorn.io \
+  --namespace longhorn-system
+kubectl get persistentvolumeclaim --all-namespaces
 ```
 
-Target mount:
+## Disk Layout
+
+The current implementation uses one virtual root disk per VM:
 
 ```text
-/var/lib/longhorn
+scsi0  Fedora, container images, logs, and Longhorn data
 ```
 
-Recommended initial sizing for this hardware:
+This is simple and works for the present lab, but it couples operating-system
+and persistent-volume capacity. A later storage change may add a dedicated
+virtual disk mounted at `/var/lib/longhorn`. That change must include
+deterministic disk identification, migration, rollback, and restore testing; do
+not format a device selected only by a guessed Linux name.
 
-| Disk | Size | Purpose |
-|---|---:|---|
-| Root | 40-60 GiB | Fedora, images, logs, and ephemeral data |
-| Longhorn | 150-200 GiB | Kubernetes persistent volumes |
-
-Use the Longhorn V1 data engine with ext4 or XFS. Its host prerequisites include
-the iSCSI initiator and NFS client support for applicable backup/RWX workflows.
-The V2 engine adds complexity and resource requirements that are not justified
-for the current 4-vCPU nodes.
+Review `vm_disk_size` before deployment. The Terraform variable default and
+the example file currently use different sizes, and Longhorn shares that root
+disk.
 
 ## Ownership
 
 | Concern | Owner |
 |---|---|
-| Add second virtual disk | Terraform |
-| Partition, format, mount, and install prerequisites | Ansible |
+| VM root disk | Terraform |
+| Install iSCSI/NFS prerequisites and kernel modules | Ansible |
 | Install Longhorn and StorageClasses | Flux |
 | Request PVCs | Application manifests |
 | Snapshot and backup schedules | Flux/Longhorn configuration |
@@ -60,41 +83,7 @@ for the current 4-vCPU nodes.
 Do not format a disk by guessed device name. Ansible must identify the intended
 disk deterministically and fail if the device state is ambiguous.
 
-## Implementation Order
-
-### Phase 1: Infrastructure
-
-1. Resolve the current root-disk default/example inconsistency.
-2. Add a dedicated disk to every VM in Terraform.
-3. Prove Terraform does not replace or reformat an existing data disk
-   unexpectedly.
-4. Add Ansible packages and persistent mount configuration.
-5. Validate the mount exists on all nodes before Flux can install Longhorn.
-
-### Phase 2: Longhorn
-
-1. Add a separate Flux `infrastructure-storage` Kustomization.
-2. Install the Longhorn chart and CRDs.
-3. Configure only the dedicated mount as schedulable.
-4. Use a two-replica default for space efficiency on three small nodes.
-5. Keep the StorageClass non-default during testing.
-6. Restrict the UI to LAN/Tailscale access.
-
-Suggested dependency placement:
-
-```text
-flux-system
-├─ infrastructure-storage
-├─ infrastructure-controllers
-│  └─ infrastructure-configs
-│     └─ applications
-└─ kubelet CSR approver
-   └─ Metrics Server
-```
-
-Controllers that need PVCs can later depend on storage explicitly.
-
-### Phase 3: Failure Tests
+## Remaining Validation
 
 Test:
 
@@ -111,7 +100,7 @@ Test:
 
 Record time to recover and any manual step.
 
-### Phase 4: Migrate Existing Data
+## Planned Consumers
 
 Initial allocations:
 
@@ -123,7 +112,9 @@ Initial allocations:
 | Loki | 30-50 GiB, governed by retention |
 | Linkding | 2-5 GiB |
 
-Size from measured usage, not only maximum available capacity.
+Linkding already requests 5 GiB. Prometheus, Alertmanager, and Grafana remain
+ephemeral until their Helm values are migrated. Size every claim from measured
+usage and retention requirements, not only available capacity.
 
 ## Backup Target
 
@@ -136,7 +127,9 @@ Preferred options:
 A MinIO instance using the same Longhorn cluster is not an independent backup.
 
 Store backup credentials in Azure Key Vault and synchronize them with External
-Secrets. Do not commit them in a Longhorn values file.
+Secrets. Do not commit them in a Longhorn values file. Until an external target
+and restore proof exist, a Terraform destroy or total Proxmox loss will destroy
+the only copies of Longhorn data.
 
 ## Application-Level Backups
 

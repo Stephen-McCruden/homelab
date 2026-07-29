@@ -13,7 +13,8 @@ environment.
 - Preserve normal TLS verification between Metrics Server and kubelets.
 - Keep public ingress addresses and router ports stable across rebuilds.
 - Provide useful failure isolation at every automation boundary.
-- Add persistent data only after an external backup and restore path exists.
+- Keep replicated storage, off-cluster backup, and restore responsibilities
+  explicit.
 
 ## Ownership Boundaries
 
@@ -26,6 +27,7 @@ environment.
 | Kubernetes controllers and applications | `clusters/` and `kubernetes/` | Git commit, push, and Flux |
 | Runtime secret values | Azure Key Vault | External Secrets Operator |
 | Encrypted Azure bootstrap identity | SOPS-encrypted manifest in Git | SOPS |
+| Private service DNS and HTTPS | Tailscale | Tailscale Operator and external administration |
 | Public DNS | Cloudflare | External administration |
 | WAN port forwarding | Router or firewall | External administration |
 | Terraform state | HCP Terraform workspace | Terraform |
@@ -38,36 +40,38 @@ Do not use two owners for the same object. In particular:
 - Do not edit an Ansible-managed node file without updating its role.
 - Do not edit an ExternalSecret target Secret directly.
 
-## Reference Topology
+## Example Topology
 
 ```text
-LAN: 192.168.0.0/24
-Gateway and DNS: 192.168.0.1
+LAN: <LAN_CIDR>
+Gateway and DNS: <GATEWAY_IP>
 
-pve1
-└─ k8s-worker-01  192.168.0.50/24  4 vCPU  8 GiB
+<PROXMOX_NODE_1>
+└─ k8s-worker-01  <WORKER_1_CIDR>  <CPU>  <MEMORY>
 
-pve2
-└─ k8s-worker-02  192.168.0.51/24  4 vCPU  8 GiB
+<PROXMOX_NODE_2>
+└─ k8s-worker-02  <WORKER_2_CIDR>  <CPU>  <MEMORY>
 
-pve3
-└─ k8s-master-01  192.168.0.52/24  4 vCPU  8 GiB
+<PROXMOX_NODE_3>
+└─ k8s-master-01  <CONTROL_PLANE_CIDR>  <CPU>  <MEMORY>
 
 Kubernetes Pod CIDR:      10.244.0.0/16
 Kubernetes Service CIDR:  10.96.0.0/12
-MetalLB pool:             192.168.0.220-192.168.0.229
-Traefik address:          192.168.0.220
+MetalLB pool:             <METALLB_RANGE>
+Traefik address:          <TRAEFIK_VIP>
 ```
 
-The control-plane endpoint is currently the control-plane node address:
+The included design uses the control-plane node address directly:
 
 ```text
-192.168.0.52:6443
+<CONTROL_PLANE_IP>:6443
 ```
 
 This makes the control plane a single failure domain. A later HA design needs a
 stable virtual endpoint, three control-plane members, and an etcd recovery
-procedure.
+procedure. The example CPU, memory, storage, and network values in the tracked
+Terraform and Ansible files must be reviewed before deployment; they are not
+requirements of the design.
 
 ## Bootstrap Sequence
 
@@ -78,6 +82,7 @@ Existing external services
   ├─ GitHub
   ├─ Azure Key Vault
   ├─ Cloudflare DNS
+  ├─ Tailscale
   └─ Router
        |
        v
@@ -110,7 +115,10 @@ The repository deliberately has two branches:
 flux-system
 ├─ infrastructure-controllers
 │  └─ infrastructure-configs
-│     └─ applications
+│     └─ infrastructure-tailscale-operator
+│        └─ infrastructure-tailscale-ingress
+│           └─ applications
+│              └─ website image automation
 └─ infrastructure-kubelet-csr-approver
    └─ infrastructure-metrics-server
 ```
@@ -120,11 +128,13 @@ The application-critical branch contains:
 - cert-manager
 - External Secrets Operator
 - kube-prometheus-stack
+- Longhorn
 - MetalLB
 - Traefik
 - runtime secret synchronization
 - ACME issuers and wildcard certificate
-- Grafana
+- Tailscale private ingress
+- Grafana, Homepage, Linkding, and the public website
 
 The node-metrics branch exists because secure kubelet serving certificates have
 a bootstrap dependency:
@@ -137,6 +147,16 @@ a bootstrap dependency:
 
 A failure in Metrics Server must be visible, but it must not prevent External
 Secrets, TLS, ingress, and normal applications from reconciling.
+
+### Clean-bootstrap caveat
+
+The bundled Grafana release references `grafana-admin-credentials` from the
+controller stage, while the ExternalSecret that creates it is applied in
+`infrastructure-configs`. An existing cluster can already have that Secret, but
+a clean cluster may stall before the configuration stage is allowed to run.
+The rebuild proof must either demonstrate that this ordering succeeds or move
+the credential-producing resource or Grafana release to a dependency-safe
+stage. Do not solve this with an undocumented manually created Secret.
 
 ## Network Model
 
@@ -161,7 +181,7 @@ path.
 LAN path:
 
 ```text
-client -> 192.168.0.220:443 -> Traefik -> Service -> Pod
+client -> <TRAEFIK_VIP>:443 -> Traefik -> Service -> Pod
 ```
 
 Internet path:
@@ -170,7 +190,7 @@ Internet path:
 client
   -> public DNS
   -> router TCP 443
-  -> 192.168.0.52:30860
+  -> <CONTROL_PLANE_IP>:<TRAEFIK_HTTPS_NODEPORT>
   -> Traefik
   -> Service
   -> Pod
@@ -180,6 +200,18 @@ The router targets a static node address because it cannot use the MetalLB
 virtual address as a port-forward destination. Traefik uses
 `externalTrafficPolicy: Cluster`, so a request arriving on the control-plane
 NodePort can reach a Traefik replica on another node.
+
+Private path:
+
+```text
+tailnet client
+  -> <SERVICE>.<TAILNET_DOMAIN>
+  -> Tailscale ingress proxy
+  -> Kubernetes Service
+  -> Pod
+```
+
+The private path does not require router port forwarding or public DNS.
 
 See [Ingress, DNS, and TLS](INGRESS-DNS-AND-TLS.md).
 
@@ -199,6 +231,10 @@ Current Azure Key Vault values:
 - `grafana-admin-user`
 - `grafana-admin-password`
 - `letsencrypt-production-account-key`
+- `linkding-superuser-name`
+- `linkding-superuser-password`
+- `tailscale-operator-client-id`
+- `tailscale-operator-client-secret`
 
 The Let's Encrypt production account key is persistent so rebuilding the
 cluster does not register a new ACME account each time.
@@ -217,22 +253,26 @@ Current state:
 | Prometheus data | Ephemeral |
 | Alertmanager data | Ephemeral |
 | Grafana data | Ephemeral |
-| Application PVC data | Not implemented |
+| Linkding data | 5 GiB Longhorn PVC, two replicas |
+| Homepage and website | Stateless and reproducible from Git |
 
-Longhorn replication will improve node-level availability, but it will not
-replace backup. The target design uses dedicated disks on every VM and an
-external backup target. See [Storage and backups](STORAGE-AND-BACKUPS.md).
+Longhorn is installed with two replicas and a `Retain` reclaim policy. It
+currently uses `/var/lib/longhorn` on each VM root filesystem. This improves
+node-level availability, but it does not survive complete VM destruction and
+does not replace backup. The next storage step is an external backup target
+with a tested restore. See [Storage and backups](STORAGE-AND-BACKUPS.md).
 
 ## Failure Domains
 
 | Failure | Expected effect | Recovery source |
 |---|---|---|
-| One worker VM | Workloads reschedule if replicas and storage permit | Terraform, Ansible, Flux |
+| One worker VM | Workloads reschedule if replicas and healthy Longhorn copies permit | Terraform, Ansible, Flux, Longhorn replicas |
 | Control-plane VM | Kubernetes API and etcd unavailable | Rebuild procedure; future etcd backup |
 | One Proxmox node | Its VM is unavailable | Proxmox HA if configured, or Terraform |
 | Complete Kubernetes cluster | All in-cluster applications unavailable | Terraform, Ansible, Flux, external backups |
 | GitHub unavailable | Existing workloads continue; reconciliation stops | Existing cluster state; repository backup |
 | Azure Key Vault unavailable | Existing Secrets remain; refresh and new rebuild fail | Azure recovery and secret inventory |
+| Tailscale unavailable | Private endpoints fail; public Traefik routes are unaffected | Tailscale administration and GitOps |
 | Home power or WAN outage | Public applications unavailable | UPS for short events; no off-site serving |
 
 ## Reproducing in Another Environment
@@ -249,13 +289,15 @@ At minimum, change:
 - domain, ACME email, Cloudflare references, and ingress hostnames
 - Azure tenant, vault URL, service principal, and secret names
 - Flux GitHub owner, repository, branch, and cluster path
+- Tailscale OAuth client, ACL tags, tailnet domain, and private hostnames
+- Homepage links, labels, and external URLs
 - router forwarding and public DNS
 
 Search for reference-environment values before deploying:
 
 ```bash
 rg -n \
-  'Stephen-McCruden|mccruden\.com|192\.168\.0|stoof|kvhomelab|pve[123]' \
+  'REPLACE|YOUR_|<[^>]+>|example\.com|example\.ts\.net' \
   --glob '!**/.git/**'
 ```
 

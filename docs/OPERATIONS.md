@@ -20,6 +20,12 @@ kubectl get helmreleases --all-namespaces
 kubectl top nodes
 kubectl get clusterissuer
 kubectl get certificate --all-namespaces
+kubectl get clustersecretstore
+kubectl get externalsecret --all-namespaces
+kubectl get persistentvolumeclaim --all-namespaces
+kubectl get nodes.longhorn.io,volumes.longhorn.io \
+  --namespace longhorn-system
+kubectl get ingress --all-namespaces
 ```
 
 Use Ready conditions and events, not Pod phase alone. A running Pod can belong
@@ -139,10 +145,49 @@ Read conditions:
 
 ```bash
 kubectl describe clusterissuer letsencrypt-production
-kubectl describe certificate wildcard-mccruden-com --namespace traefik
+kubectl describe certificate "<WILDCARD_CERTIFICATE_NAME>" \
+  --namespace traefik
 ```
 
 Do not delete ACME account keys during routine troubleshooting.
+
+## Longhorn
+
+```bash
+kubectl get helmrelease longhorn --namespace longhorn-system
+kubectl get pods --namespace longhorn-system
+kubectl get nodes.longhorn.io \
+  --namespace longhorn-system \
+  --output wide
+kubectl get volumes.longhorn.io \
+  --namespace longhorn-system \
+  --output wide
+kubectl get persistentvolumeclaim --all-namespaces
+```
+
+Every attached volume should report `robustness: healthy`. Investigate degraded
+replicas, scheduling failures, low free space, or unexpected detachments before
+draining another node. A healthy replica count is not proof of an independent
+backup.
+
+## Tailscale Private Access
+
+```bash
+kubectl get externalsecret operator-oauth --namespace tailscale
+kubectl get helmrelease tailscale-operator --namespace tailscale
+kubectl get pods --namespace tailscale
+kubectl get proxyclass
+kubectl get ingress --all-namespaces
+```
+
+Acceptance from a tailnet-connected client:
+
+```bash
+TAILNET_DOMAIN="<TAILNET_DOMAIN>"
+curl -fsSI "https://homepage.${TAILNET_DOMAIN}"
+curl -fsSI "https://linkding.${TAILNET_DOMAIN}"
+curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
+```
 
 ## Normal GitOps Change
 
@@ -163,6 +208,9 @@ Before planned worker maintenance:
 
 ```bash
 kubectl cordon NODE
+kubectl get volumes.longhorn.io \
+  --namespace longhorn-system \
+  --output wide
 kubectl drain NODE \
   --ignore-daemonsets \
   --delete-emptydir-data
@@ -196,6 +244,7 @@ Avoid unbounded version constraints in a reproducibility-focused repository.
 - confirm HCP state is accessible
 - confirm both offline SOPS identities can decrypt the test manifest
 - confirm Azure secret names and enabled state
+- confirm the Tailscale OAuth client and ACL tags are recoverable
 - confirm the GitHub repository has an independent backup or mirror
 - confirm Terraform variables and public SSH keys are recoverable
 - confirm public DNS and router rules match documentation

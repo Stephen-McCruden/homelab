@@ -31,6 +31,7 @@ YubiKey:
 - validate inventory, Fedora, and passwordless sudo
 - serialize DNF5 transactions
 - configure kernel modules, sysctls, swap, and zram
+- install and validate Longhorn host prerequisites
 - install containerd and Kubernetes packages
 - configure explicit firewalld rules
 - harden SSH
@@ -56,8 +57,13 @@ YubiKey:
 - create or update `flux-system/sops-age`
 - bootstrap Flux only when absent
 - verify the generated SSH deploy-key Secret
-- wait for the Git source and all six managed Kustomizations
+- wait for the Git source and the six core Kustomizations listed in the role
 - run the final Flux health check
+
+Tailscale and website-image-automation Kustomizations reconcile after those
+core gates. Use the repository-wide acceptance checks in
+[Deployment workflow](../docs/DEPLOYMENT-WORKFLOW.md) before declaring the
+platform complete.
 
 ## Inventory
 

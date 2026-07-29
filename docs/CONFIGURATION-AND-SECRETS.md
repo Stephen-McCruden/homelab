@@ -25,6 +25,26 @@ reproducible topology. A reproducer may either replace it in a fork or maintain
 environment overlays, but should not pretend that the current `.yml` files are
 ignored.
 
+## Values to Replace
+
+Before deployment, review every tracked environment-specific value:
+
+| Value | Primary location |
+|---|---|
+| HCP organization and workspace | `terraform/main.tf` |
+| Proxmox API, storage, bridge, nodes, VM IDs, VM sizing, and addresses | `terraform/terraform.tfvars` |
+| Cloud-init DNS servers | `terraform/main.tf` |
+| SSH username and node addresses | `ansible/inventory/` |
+| kubeadm endpoint and network CIDRs | `ansible/inventory/group_vars/all.yml` |
+| GitHub owner, repository, author, and cluster path | `ansible/roles/flux_bootstrap/defaults/main.yml` |
+| Azure vault URL and identity | `kubernetes/infrastructure/configs/external-secrets/` |
+| Public domain, certificate names, and ingress hosts | `kubernetes/infrastructure/configs/` and `kubernetes/applications/` |
+| Tailnet domain, tags, and private hostnames | Tailscale and Homepage manifests |
+| Homepage title, links, and bookmarks | `kubernetes/applications/homelab/homepage/configmap.yaml` |
+
+The provider choices are part of this implementation; the account names,
+addresses, domains, and credentials are not.
+
 ## Credential Inventory
 
 | Credential | Normal location | Consumer | Recovery requirement |
@@ -37,6 +57,7 @@ ignored.
 | SOPS age identity | `~/.config/sops/age/keys.txt` | Ansible and SOPS | Two tested offline copies |
 | Azure service principal | SOPS-encrypted manifest | External Secrets | Azure identity recovery |
 | Runtime application secrets | Azure Key Vault | External Secrets | Azure backup/recovery |
+| Tailscale OAuth client | Azure Key Vault | Tailscale Operator | Recreate or rotate in Tailscale |
 | Kubernetes admin kubeconfig | `~/.kube/homelab-admin.conf` | Operator | Recreated by Ansible |
 
 ## Terraform Variables
@@ -204,6 +225,10 @@ cloudflare-api-token
 grafana-admin-user
 grafana-admin-password
 letsencrypt-production-account-key
+linkding-superuser-name
+linkding-superuser-password
+tailscale-operator-client-id
+tailscale-operator-client-secret
 ```
 
 Expected generated Secrets:
@@ -214,6 +239,8 @@ Expected generated Secrets:
 | `cloudflare-api-token` | `cert-manager` | External Secrets |
 | `grafana-admin-credentials` | `monitoring` | External Secrets |
 | `letsencrypt-production-account-key-managed` | `cert-manager` | External Secrets |
+| `linkding-bootstrap-credentials` | `linkding` | External Secrets |
+| `operator-oauth` | `tailscale` | External Secrets |
 
 Verify readiness without returning values:
 
@@ -245,6 +272,43 @@ account.
 
 Treat the account key as private. Base64-encoded Kubernetes Secret data is not
 encryption.
+
+## Tailscale Operator Credentials
+
+Create a dedicated OAuth client for the Kubernetes Operator. The repository
+expects the client ID and secret in Azure Key Vault under:
+
+```text
+tailscale-operator-client-id
+tailscale-operator-client-secret
+```
+
+The ExternalSecret maps those values to the `client_id` and `client_secret`
+keys required by the chart's `tailscale/operator-oauth` Secret. Limit the OAuth
+client to the permissions and tags required by the operator, enable MagicDNS
+and HTTPS certificates for the tailnet, and never place either OAuth value in
+Git.
+
+Verify metadata only:
+
+```bash
+kubectl get externalsecret operator-oauth --namespace tailscale
+kubectl get secret operator-oauth --namespace tailscale \
+  --output jsonpath='{.metadata.name}{"\n"}'
+```
+
+## Linkding Bootstrap Credentials
+
+Linkding reads its initial administrator name and password from
+`linkding-bootstrap-credentials`. The source Key Vault entries are:
+
+```text
+linkding-superuser-name
+linkding-superuser-password
+```
+
+These are bootstrap credentials, not a backup of Linkding's SQLite database.
+Back up and test restoration of the application data separately.
 
 ## Administrative Kubeconfig
 

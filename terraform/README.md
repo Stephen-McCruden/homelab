@@ -19,17 +19,18 @@ Terraform does not own:
 - Cilium
 - Flux
 - Kubernetes controllers or applications
-- router rules, public DNS, Azure Key Vault, or application-data restore
+- Longhorn configuration, router rules, public DNS, Azure Key Vault,
+  Tailscale, or application-data restore
 
 See [Architecture](../docs/ARCHITECTURE.md).
 
-## Reference Topology
+## Example Topology
 
 | VM | Proxmox | VM ID | Address | CPU | Memory |
 |---|---|---:|---:|---:|---:|
-| `k8s-worker-01` | `pve1` | 150 | `192.168.0.50/24` | 4 | 8192 MiB |
-| `k8s-worker-02` | `pve2` | 151 | `192.168.0.51/24` | 4 | 8192 MiB |
-| `k8s-master-01` | `pve3` | 152 | `192.168.0.52/24` | 4 | 8192 MiB |
+| `k8s-worker-01` | `<PROXMOX_NODE_1>` | `<VM_ID_1>` | `<WORKER_1_CIDR>` | `<CPU>` | `<MEMORY_MIB>` |
+| `k8s-worker-02` | `<PROXMOX_NODE_2>` | `<VM_ID_2>` | `<WORKER_2_CIDR>` | `<CPU>` | `<MEMORY_MIB>` |
+| `k8s-master-01` | `<PROXMOX_NODE_3>` | `<VM_ID_3>` | `<CONTROL_PLANE_CIDR>` | `<CPU>` | `<MEMORY_MIB>` |
 
 ## Requirements
 
@@ -55,17 +56,22 @@ Replace every placeholder. The example intentionally contains no real
 credential.
 
 The current `variables.tf` default and example disagree on root-disk size. Set
-`vm_disk_size` explicitly in `terraform.tfvars` until that implementation
-decision is corrected. Longhorn should later use a separate virtual disk rather
-than consuming the root disk.
+`vm_disk_size` explicitly in `terraform.tfvars`. Longhorn currently stores data
+under `/var/lib/longhorn` on that same root disk, so include container images,
+logs, free-space guardrails, and replicated volume data in the capacity
+calculation.
+
+Cloud-init DNS servers are currently declared in `main.tf`, not exposed as
+Terraform variables. Replace those reference values before applying in another
+network.
 
 ## Backend
 
 The HCP configuration is in `main.tf`:
 
 ```text
-Organization: stoof-homelab
-Workspace:    stoof-lab
+Organization: <HCP_ORGANIZATION>
+Workspace:    <HCP_WORKSPACE>
 ```
 
 A reproducer must replace those values:
@@ -92,7 +98,9 @@ sensitive data and must not be committed.
 After cloud-init:
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+NODE_ADDRESSES=("<WORKER_1_IP>" "<WORKER_2_IP>" "<CONTROL_PLANE_IP>")
+
+for address in "${NODE_ADDRESSES[@]}"; do
   ping -c 2 "$address"
 done
 ```
@@ -102,7 +110,7 @@ Then test SSH. For YubiKey:
 ```bash
 ssh -o IdentitiesOnly=yes \
   -i "$HOME/.ssh/id_ed25519_sk" \
-  stoof@192.168.0.52 true
+  "<ADMIN_USER>@<CONTROL_PLANE_IP>" true
 ```
 
 Also verify routing and DNS from a VM:
@@ -139,9 +147,10 @@ terraform plan -destroy
 terraform destroy
 ```
 
-Destruction removes the Kubernetes VMs. Git restores desired configuration, but
-it does not restore etcd or application data. Require external backup and
-restore evidence before destroying stateful workloads.
+Destruction removes the Kubernetes VMs and the root disks currently holding
+Longhorn replicas. Git restores desired configuration, but it does not restore
+etcd or application data. Require external backup and restore evidence before
+destroying stateful workloads.
 
 ## Validation Before Commit
 

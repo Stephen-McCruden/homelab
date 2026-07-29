@@ -14,8 +14,9 @@ Proxmox
   -> Flux dependency
   -> HelmRelease
   -> configuration and Secrets
+  -> Longhorn and PVC attachment
   -> application
-  -> ingress, DNS, and TLS
+  -> public or Tailscale ingress, DNS, and TLS
 ```
 
 Do not change a later layer to hide an earlier failure.
@@ -66,10 +67,10 @@ replace the VM rather than hand-editing a permanent resolver file.
 ## Ansible Cannot Connect
 
 ```bash
-ssh-keygen -R 192.168.0.52
+ssh-keygen -R "<CONTROL_PLANE_IP>"
 ssh -vvv -o IdentitiesOnly=yes \
   -i "$HOME/.ssh/id_ed25519_sk" \
-  stoof@192.168.0.52 true
+  "<ADMIN_USER>@<CONTROL_PLANE_IP>" true
 ```
 
 `system-init.yml` reconciles replaced host keys through
@@ -167,6 +168,25 @@ kubectl get events --all-namespaces --sort-by=.lastTimestamp
 The condition message normally names the stalled resource. Fix that resource
 instead of deleting and recreating the entire Flux installation.
 
+### Clean bootstrap stalls on Grafana credentials
+
+```bash
+kubectl describe helmrelease kube-prometheus-stack \
+  --namespace monitoring
+kubectl get secret grafana-admin-credentials \
+  --namespace monitoring
+kubectl get externalsecret grafana-admin-credentials \
+  --namespace monitoring
+kubectl get kustomization infrastructure-controllers infrastructure-configs \
+  --namespace flux-system
+```
+
+On a clean cluster, a missing `grafana-admin-credentials` Secret can expose the
+current stage-ordering problem: Grafana consumes the Secret from
+`infrastructure-controllers`, but its ExternalSecret is applied by the
+dependent `infrastructure-configs` stage. Correct the dependency ownership in
+Git. Do not create an untracked credential Secret just to let Helm continue.
+
 ## ExternalSecret Not Found
 
 First distinguish omitted resource from failed synchronization:
@@ -210,14 +230,58 @@ Routing works; certificate validation does not. Check:
 ```bash
 kubectl get certificate --all-namespaces
 kubectl get tlsstore --namespace traefik
+PUBLIC_HOSTNAME="<PUBLIC_HOSTNAME>"
 openssl s_client \
-  -connect grafana.mccruden.com:443 \
-  -servername grafana.mccruden.com \
+  -connect "${PUBLIC_HOSTNAME}:443" \
+  -servername "${PUBLIC_HOSTNAME}" \
   -verify_return_error </dev/null
 ```
 
 Check hostname coverage, certificate readiness, Traefik TLSStore, system clock,
 and Cloudflare origin/proxy mode. Do not make `-k` permanent.
+
+## Longhorn Volume Is Degraded or Detached
+
+```bash
+kubectl get nodes.longhorn.io,volumes.longhorn.io \
+  --namespace longhorn-system \
+  --output wide
+kubectl get replicas.longhorn.io,engines.longhorn.io \
+  --namespace longhorn-system \
+  --output wide
+kubectl get persistentvolume,persistentvolumeclaim --all-namespaces
+kubectl get events --all-namespaces --sort-by=.lastTimestamp
+```
+
+Check node readiness, `iscsid`, the `iscsi_tcp` module, free space under
+`/var/lib/longhorn`, replica scheduling, and whether another node is already
+being drained. Do not delete a volume, replica, or PVC merely to clear a
+condition. Confirm backup status and the `Retain` policy before any destructive
+storage action.
+
+## Tailscale Ingress Does Not Resolve or Connect
+
+```bash
+kubectl get externalsecret operator-oauth --namespace tailscale
+kubectl get helmrelease tailscale-operator --namespace tailscale
+kubectl get pods --namespace tailscale
+kubectl get proxyclass
+kubectl get ingress --all-namespaces
+```
+
+Then check the operator logs:
+
+```bash
+kubectl logs \
+  --namespace tailscale \
+  --selector app.kubernetes.io/name=operator \
+  --tail=100
+```
+
+Confirm the OAuth client is enabled, its permissions and tags match the
+operator configuration, the tailnet policy defines those tags, and MagicDNS
+and HTTPS certificates are enabled. A private Tailscale hostname should not
+have a public DNS record.
 
 ## Partial kubeadm or Flux State
 

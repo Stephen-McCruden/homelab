@@ -40,10 +40,13 @@ test -f "$HOME/.ssh/id_ed25519_sk.pub"
 Test each node:
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+ADMIN_USER="<ADMIN_USER>"
+NODE_ADDRESSES=("<WORKER_1_IP>" "<WORKER_2_IP>" "<CONTROL_PLANE_IP>")
+
+for address in "${NODE_ADDRESSES[@]}"; do
   ssh -o IdentitiesOnly=yes \
     -i "$HOME/.ssh/id_ed25519_sk" \
-    "stoof@${address}" true
+    "${ADMIN_USER}@${address}" true
 done
 ```
 
@@ -81,7 +84,7 @@ Set its path in `ansible/inventory/group_vars/all.yml`, then test:
 ssh -o BatchMode=yes \
   -o IdentitiesOnly=yes \
   -i "$HOME/.ssh/id_ed25519" \
-  stoof@192.168.0.52 true
+  "<ADMIN_USER>@<CONTROL_PLANE_IP>" true
 
 cd ansible
 ansible all --module-name ping
@@ -157,7 +160,8 @@ Maintain:
 
 - two FIDO2 keys or a tested emergency file-backed SSH key
 - offline copies of the SOPS age identity
-- recovery access for GitHub, Azure, HCP Terraform, Cloudflare, and Proxmox
+- recovery access for GitHub, Azure, HCP Terraform, Cloudflare, Tailscale, and
+  Proxmox
 - the public SSH key in the Terraform variable backup
 
 Test recovery credentials periodically. A spare key that has never been used is

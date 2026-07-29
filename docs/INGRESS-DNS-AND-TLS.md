@@ -3,22 +3,23 @@
 This document describes how an HTTP request reaches a workload and how to
 isolate failures without disabling TLS verification as a permanent fix.
 
-## Reference Endpoints
+## Deployment Values
 
 | Endpoint | Value |
 |---|---|
-| Control-plane node | `192.168.0.52` |
-| MetalLB pool | `192.168.0.220-192.168.0.229` |
-| Traefik VIP | `192.168.0.220` |
-| Traefik HTTP NodePort | `32492` |
-| Traefik HTTPS NodePort | `30860` |
-| Wildcard certificate | `mccruden.com`, `*.mccruden.com` |
+| Control-plane node | `<CONTROL_PLANE_IP>` |
+| MetalLB pool | `<METALLB_RANGE>` |
+| Traefik VIP | `<TRAEFIK_VIP>` |
+| Traefik HTTP NodePort | `<TRAEFIK_HTTP_NODEPORT>` |
+| Traefik HTTPS NodePort | `<TRAEFIK_HTTPS_NODEPORT>` |
+| Wildcard certificate | `<PUBLIC_DOMAIN>`, `*.<PUBLIC_DOMAIN>` |
+| Tailnet domain | `<TAILNET_DOMAIN>` |
 
 Router:
 
 ```text
-WAN TCP 80  -> 192.168.0.52:32492
-WAN TCP 443 -> 192.168.0.52:30860
+WAN TCP 80  -> <CONTROL_PLANE_IP>:<TRAEFIK_HTTP_NODEPORT>
+WAN TCP 443 -> <CONTROL_PLANE_IP>:<TRAEFIK_HTTPS_NODEPORT>
 ```
 
 ## Request Paths
@@ -27,7 +28,7 @@ LAN:
 
 ```text
 client
-  -> 192.168.0.220:443
+  -> <TRAEFIK_VIP>:443
   -> Traefik websecure entrypoint
   -> Kubernetes Service
   -> application Pod
@@ -40,7 +41,7 @@ client
   -> Cloudflare DNS
   -> home public address
   -> router
-  -> 192.168.0.52:30860
+  -> <CONTROL_PLANE_IP>:<TRAEFIK_HTTPS_NODEPORT>
   -> Traefik
   -> Kubernetes Service
   -> application Pod
@@ -55,6 +56,20 @@ externalTrafficPolicy: Cluster
 
 Traffic received on that node can therefore reach a Traefik replica elsewhere.
 
+Tailscale-private:
+
+```text
+tailnet client
+  -> <SERVICE>.<TAILNET_DOMAIN>
+  -> Tailscale ingress proxy
+  -> Kubernetes Service
+  -> application Pod
+```
+
+Homepage, Linkding, and Grafana have private Ingress resources with
+`ingressClassName: tailscale`. Tailscale supplies MagicDNS records and HTTPS
+certificates; no public DNS record or router forwarding is needed.
+
 ## Stable NodePorts
 
 The Traefik HelmRelease pins:
@@ -62,9 +77,9 @@ The Traefik HelmRelease pins:
 ```yaml
 ports:
   web:
-    nodePort: 32492
+    nodePort: <TRAEFIK_HTTP_NODEPORT>
   websecure:
-    nodePort: 30860
+    nodePort: <TRAEFIK_HTTPS_NODEPORT>
 ```
 
 Verify:
@@ -79,22 +94,23 @@ kubectl get service traefik \
   --output jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
 ```
 
-Expected VIP: `192.168.0.220`.
+The reported address must match the configured Traefik VIP.
 
 ## Public DNS
 
 Check authoritative public resolution:
 
 ```bash
-dig @1.1.1.1 grafana.mccruden.com A +short
-dig @1.1.1.1 mccruden.com A +short
+PUBLIC_HOSTNAME="<PUBLIC_HOSTNAME>"
+
+dig @1.1.1.1 "$PUBLIC_HOSTNAME" A +short
 ```
 
 Check the local resolver:
 
 ```bash
-resolvectl query grafana.mccruden.com
-getent ahostsv4 grafana.mccruden.com
+resolvectl query "$PUBLIC_HOSTNAME"
+getent ahostsv4 "$PUBLIC_HOSTNAME"
 ```
 
 Inside the LAN, use either NAT reflection or split DNS. A local failure with a
@@ -109,7 +125,7 @@ SOPS decrypts Azure bootstrap credentials
   -> persistent production ACME account key appears
   -> ClusterIssuer becomes Ready
   -> cert-manager completes Cloudflare DNS-01
-  -> wildcard-mccruden-com-tls appears in traefik
+  -> wildcard certificate Secret appears in traefik
   -> Traefik TLSStore uses it as the default certificate
 ```
 
@@ -119,7 +135,7 @@ Verify in dependency order:
 kubectl get clustersecretstore azure-key-vault
 kubectl get externalsecret --all-namespaces
 kubectl get clusterissuer
-kubectl get certificate wildcard-mccruden-com --namespace traefik
+kubectl get certificate --namespace traefik
 kubectl get order,challenge --all-namespaces
 kubectl get tlsstore default --namespace traefik
 ```
@@ -130,7 +146,7 @@ Condition details:
 kubectl get clusterissuer letsencrypt-production \
   --output jsonpath='{range .status.conditions[*]}{.type}{": "}{.reason}{" — "}{.message}{"\n"}{end}'
 
-kubectl get certificate wildcard-mccruden-com \
+kubectl get certificate "<WILDCARD_CERTIFICATE_NAME>" \
   --namespace traefik \
   --output jsonpath='{range .status.conditions[*]}{.type}{": "}{.reason}{" — "}{.message}{"\n"}{end}'
 ```
@@ -168,28 +184,52 @@ kubectl get pod --namespace metallb-system
 ### 4. LAN route
 
 ```bash
+PUBLIC_HOSTNAME="<PUBLIC_HOSTNAME>"
+TRAEFIK_VIP="<TRAEFIK_VIP>"
+
 curl -vkI \
-  --resolve grafana.mccruden.com:443:192.168.0.220 \
-  https://grafana.mccruden.com
+  --resolve "${PUBLIC_HOSTNAME}:443:${TRAEFIK_VIP}" \
+  "https://${PUBLIC_HOSTNAME}"
 ```
 
 ### 5. Static NodePort
 
 ```bash
+CONTROL_PLANE_IP="<CONTROL_PLANE_IP>"
+TRAEFIK_HTTPS_NODEPORT="<TRAEFIK_HTTPS_NODEPORT>"
+
 curl -vkI \
-  --resolve grafana.mccruden.com:30860:192.168.0.52 \
-  https://grafana.mccruden.com:30860
+  --resolve \
+    "${PUBLIC_HOSTNAME}:${TRAEFIK_HTTPS_NODEPORT}:${CONTROL_PLANE_IP}" \
+  "https://${PUBLIC_HOSTNAME}:${TRAEFIK_HTTPS_NODEPORT}"
 ```
 
 ### 6. Public route
 
 ```bash
-curl -vI https://grafana.mccruden.com
+curl -vI "https://${PUBLIC_HOSTNAME}"
 ```
 
 If MetalLB works but NodePort does not, inspect the Service, node firewall, and
 cluster routing. If NodePort works but the public route does not, inspect the
 router, public address, ISP, Cloudflare mode, and DNS.
+
+### 7. Tailscale-private route
+
+```bash
+TAILNET_DOMAIN="<TAILNET_DOMAIN>"
+
+kubectl get ingress --all-namespaces \
+  --output custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,CLASS:.spec.ingressClassName,HOST:.status.loadBalancer.ingress[0].hostname'
+kubectl get statefulset,pod --all-namespaces | rg 'tailscale|ts-'
+curl -fsSI "https://homepage.${TAILNET_DOMAIN}"
+curl -fsSI "https://linkding.${TAILNET_DOMAIN}"
+curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
+```
+
+If the Ingress exists but its hostname is unavailable, inspect the Tailscale
+Operator, `operator-oauth` ExternalSecret, OAuth permissions, ACL tags,
+MagicDNS, and HTTPS-certificate settings.
 
 ## TLS Acceptance
 
@@ -197,26 +237,28 @@ Diagnostic commands may use `-k` to prove that routing works while certificate
 validation fails. Final acceptance must not:
 
 ```bash
-curl -fsSI https://grafana.mccruden.com
+curl -fsSI "https://${PUBLIC_HOSTNAME}"
 ```
 
 Inspect the presented certificate:
 
 ```bash
 openssl s_client \
-  -connect grafana.mccruden.com:443 \
-  -servername grafana.mccruden.com \
+  -connect "${PUBLIC_HOSTNAME}:443" \
+  -servername "${PUBLIC_HOSTNAME}" \
   -verify_return_error </dev/null
 ```
 
 ## Adding an Application Hostname
 
 1. Choose whether the application is public, LAN-only, or Tailscale-only.
-2. Create the required DNS record in the correct DNS view.
-3. Add a Kubernetes Service and Traefik-compatible Ingress.
-4. Use `websecure` and enable router TLS.
+2. For a public application, create the required public DNS record and a
+   Traefik Ingress. For a private application, create a Tailscale Ingress and
+   do not create public DNS.
+3. Add a Kubernetes Service and the selected Ingress.
+4. For Traefik, use `websecure` and enable router TLS.
 5. Do not copy the wildcard private key into the application namespace.
-6. Let Traefik terminate TLS using the default TLSStore unless isolation
+6. Let Traefik terminate public TLS using the default TLSStore unless isolation
    requires a separate certificate.
 7. Add an unauthenticated health endpoint or appropriate probe.
 8. Add monitoring before declaring the application complete.

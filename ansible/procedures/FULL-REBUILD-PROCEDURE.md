@@ -19,13 +19,14 @@ This procedure currently restores:
 - Flux and the GitOps dependency graph
 - External Secrets and runtime Kubernetes Secrets
 - ACME account reuse and wildcard TLS
-- current stateless applications
+- Longhorn installation and empty volume provisioning
+- current stateless applications and private Tailscale ingress
 
 It does not currently restore:
 
 - old etcd state
 - PVC contents
-- databases
+- the Linkding database
 - application uploads
 - Prometheus history
 - Grafana UI changes not declared in Git
@@ -126,13 +127,17 @@ cloudflare-api-token
 grafana-admin-user
 grafana-admin-password
 letsencrypt-production-account-key
+linkding-superuser-name
+linkding-superuser-password
+tailscale-operator-client-id
+tailscale-operator-client-secret
 ```
 
 List names and enabled state without values:
 
 ```bash
 az keyvault secret list \
-  --vault-name kvhomelab91c977 \
+  --vault-name "<KEY_VAULT_NAME>" \
   --query '[].{name:name,enabled:attributes.enabled}' \
   --output table
 ```
@@ -140,17 +145,17 @@ az keyvault secret list \
 ### Verify external network configuration
 
 ```text
-WAN TCP 80  -> 192.168.0.52:32492
-WAN TCP 443 -> 192.168.0.52:30860
+WAN TCP 80  -> <CONTROL_PLANE_IP>:<TRAEFIK_HTTP_NODEPORT>
+WAN TCP 443 -> <CONTROL_PLANE_IP>:<TRAEFIK_HTTPS_NODEPORT>
 ```
 
-Confirm public DNS and reserve:
+Confirm public DNS, Tailscale MagicDNS/HTTPS, and reserve:
 
 ```text
-192.168.0.50
-192.168.0.51
-192.168.0.52
-192.168.0.220-192.168.0.229
+<WORKER_1_IP>
+<WORKER_2_IP>
+<CONTROL_PLANE_IP>
+<METALLB_RANGE>
 ```
 
 ### Verify application backups
@@ -184,8 +189,11 @@ cd "$REPO_ROOT"
 kubectl kustomize kubernetes/infrastructure/controllers/core >/dev/null
 kubectl kustomize kubernetes/infrastructure/controllers/kubelet-csr-approver >/dev/null
 kubectl kustomize kubernetes/infrastructure/controllers/metrics-server >/dev/null
+kubectl kustomize kubernetes/infrastructure/controllers/tailscale >/dev/null
 kubectl kustomize kubernetes/infrastructure/configs >/dev/null
+kubectl kustomize kubernetes/infrastructure/configs/tailscale-ingress >/dev/null
 kubectl kustomize kubernetes/applications/homelab >/dev/null
+kubectl kustomize "<WEBSITE_AUTOMATION_PATH>" >/dev/null
 ```
 
 ## Phase 2: Destroy and Recreate VMs
@@ -203,7 +211,9 @@ The explicitly named local plan is no longer needed after apply.
 Wait for cloud-init, then:
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+NODE_ADDRESSES=("<WORKER_1_IP>" "<WORKER_2_IP>" "<CONTROL_PLANE_IP>")
+
+for address in "${NODE_ADDRESSES[@]}"; do
   ping -c 2 "$address"
 done
 ```
@@ -211,10 +221,12 @@ done
 YubiKey SSH:
 
 ```bash
-for address in 192.168.0.50 192.168.0.51 192.168.0.52; do
+ADMIN_USER="<ADMIN_USER>"
+
+for address in "${NODE_ADDRESSES[@]}"; do
   ssh -o IdentitiesOnly=yes \
     -i "$HOME/.ssh/id_ed25519_sk" \
-    "stoof@${address}" true
+    "${ADMIN_USER}@${address}" true
 done
 ```
 
@@ -309,7 +321,7 @@ kubectl get kustomizations --namespace flux-system
 kubectl get helmreleases --all-namespaces
 ```
 
-All six Kustomizations must be `Ready=True`:
+Every expected Kustomization must be `Ready=True`:
 
 ```text
 flux-system
@@ -318,6 +330,9 @@ infrastructure-configs
 applications
 infrastructure-kubelet-csr-approver
 infrastructure-metrics-server
+infrastructure-tailscale-operator
+infrastructure-tailscale-ingress
+<WEBSITE_IMAGE_AUTOMATION_KUSTOMIZATION>
 ```
 
 If a HelmRelease exhausted retries while an earlier dependency was being
@@ -332,7 +347,13 @@ flux reconcile helmrelease NAME \
 
 No reset should be required in a clean rebuild proof.
 
-## Phase 7: Secrets, Certificates, and Metrics
+If `infrastructure-controllers` stalls on Grafana because
+`grafana-admin-credentials` does not yet exist, stop and follow the
+[troubleshooting entry](../../docs/TROUBLESHOOTING.md#clean-bootstrap-stalls-on-grafana-credentials).
+That is a dependency-order defect to fix in Git, not a reason to create a
+manual Secret.
+
+## Phase 7: Secrets, Storage, Certificates, and Metrics
 
 ```bash
 kubectl get secret sops-age --namespace flux-system
@@ -341,6 +362,10 @@ kubectl get externalsecret --all-namespaces
 kubectl get clusterissuer
 kubectl get certificate --all-namespaces
 kubectl get certificatesigningrequests
+kubectl get storageclass
+kubectl get nodes.longhorn.io,volumes.longhorn.io \
+  --namespace longhorn-system
+kubectl get persistentvolumeclaim --all-namespaces
 kubectl top nodes
 ```
 
@@ -350,12 +375,15 @@ Require:
 - every ExternalSecret Ready
 - staging and production issuers Ready
 - wildcard certificate Ready
+- Longhorn nodes schedulable and volumes healthy
+- expected PVCs Bound
+- Tailscale OAuth ExternalSecret Ready
 - serving CSRs approved by the controller
 - metrics for all three nodes
 
 Do not print Kubernetes Secret `.data`.
 
-## Phase 8: Ingress Acceptance
+## Phase 8: Public and Private Endpoint Acceptance
 
 Verify static service values:
 
@@ -365,37 +393,45 @@ kubectl get service traefik \
   --output jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}{range .spec.ports[*]}{.name}{" "}{.nodePort}{"\n"}{end}'
 ```
 
-Expected:
+The reported VIP and NodePorts must match the selected deployment values.
 
-```text
-192.168.0.220
-web 32492
-websecure 30860
+Set local shell variables:
+
+```bash
+PUBLIC_HOSTNAME="<PUBLIC_HOSTNAME>"
+TRAEFIK_VIP="<TRAEFIK_VIP>"
+CONTROL_PLANE_IP="<CONTROL_PLANE_IP>"
+TRAEFIK_HTTPS_NODEPORT="<TRAEFIK_HTTPS_NODEPORT>"
+TAILNET_DOMAIN="<TAILNET_DOMAIN>"
 ```
 
 Diagnostic LAN route:
 
 ```bash
 curl -vkI \
-  --resolve grafana.mccruden.com:443:192.168.0.220 \
-  https://grafana.mccruden.com
+  --resolve "${PUBLIC_HOSTNAME}:443:${TRAEFIK_VIP}" \
+  "https://${PUBLIC_HOSTNAME}"
 ```
 
 Diagnostic NodePort route:
 
 ```bash
 curl -vkI \
-  --resolve grafana.mccruden.com:30860:192.168.0.52 \
-  https://grafana.mccruden.com:30860
+  --resolve \
+    "${PUBLIC_HOSTNAME}:${TRAEFIK_HTTPS_NODEPORT}:${CONTROL_PLANE_IP}" \
+  "https://${PUBLIC_HOSTNAME}:${TRAEFIK_HTTPS_NODEPORT}"
 ```
 
 Final acceptance:
 
 ```bash
-curl -fsSI https://grafana.mccruden.com
+curl -fsSI "https://${PUBLIC_HOSTNAME}"
+curl -fsSI "https://homepage.${TAILNET_DOMAIN}"
+curl -fsSI "https://linkding.${TAILNET_DOMAIN}"
+curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
 ```
 
-The final command must succeed without `-k`.
+Every acceptance command must succeed without `-k`.
 
 ## Phase 9: Idempotency
 
@@ -423,7 +459,7 @@ Record:
 
 - final Git commit and Flux applied revision
 - duration of each phase
-- all six Kustomization conditions
+- all expected Kustomization conditions
 - all HelmRelease conditions
 - public HTTPS result
 - idempotency result
