@@ -1,0 +1,24 @@
+# FILE PATH:
+# kubernetes/applications/homelab/freshrss/service.yaml
+# PURPOSE: Expose FreshRSS internally for the Tailscale ingress proxy.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: freshrss
+  namespace: freshrss
+  labels:
+    app.kubernetes.io/name: freshrss
+    app.kubernetes.io/part-of: homelab
+spec:
+  type: ClusterIP
+
+  selector:
+    app.kubernetes.io/name: freshrss
+
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

@@ -1,0 +1,22 @@
+# FILE PATH:
+# kubernetes/applications/homelab/freshrss/persistentvolumeclaim.yaml
+# PURPOSE: Persist FreshRSS configuration, users, subscriptions, and SQLite data.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: freshrss-data
+  namespace: freshrss
+  labels:
+    app.kubernetes.io/name: freshrss
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  storageClassName: longhorn
+  volumeMode: Filesystem
+
+  resources:
+    requests:
+      storage: 5Gi

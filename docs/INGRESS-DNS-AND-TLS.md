@@ -66,9 +66,10 @@ tailnet client
   -> application Pod
 ```
 
-Homepage, Linkding, and Grafana have private Ingress resources with
-`ingressClassName: tailscale`. Tailscale supplies MagicDNS records and HTTPS
-certificates; no public DNS record or router forwarding is needed.
+Homepage, Linkding, Mealie, FreshRSS, and Grafana have private Ingress
+resources with `ingressClassName: tailscale`. Tailscale supplies MagicDNS
+records and HTTPS certificates; no public DNS record or router forwarding is
+needed.
 
 ## Stable NodePorts
 
@@ -224,6 +225,8 @@ kubectl get ingress --all-namespaces \
 kubectl get statefulset,pod --all-namespaces | rg 'tailscale|ts-'
 curl -fsSI "https://homepage.${TAILNET_DOMAIN}"
 curl -fsSI "https://linkding.${TAILNET_DOMAIN}"
+curl -fsSI "https://mealie.${TAILNET_DOMAIN}"
+curl -fsSI "https://freshrss.${TAILNET_DOMAIN}"
 curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
 ```
 

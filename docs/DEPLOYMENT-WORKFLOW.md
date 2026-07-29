@@ -282,6 +282,8 @@ Acceptance test:
 curl -fsSI "https://${PUBLIC_HOSTNAME}"
 curl -fsSI "https://homepage.${TAILNET_DOMAIN}"
 curl -fsSI "https://linkding.${TAILNET_DOMAIN}"
+curl -fsSI "https://mealie.${TAILNET_DOMAIN}"
+curl -fsSI "https://freshrss.${TAILNET_DOMAIN}"
 curl -fsSI "https://grafana.${TAILNET_DOMAIN}"
 ```
 

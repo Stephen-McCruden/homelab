@@ -11,6 +11,8 @@ for adding another workload to this three-node cluster.
 | Website preview | Public Traefik ingress | Stateless, two replicas, no-index middleware |
 | Homepage | Tailscale-only | Stateless, Git-managed configuration |
 | Linkding | Tailscale-only | One replica, 5 GiB Longhorn PVC |
+| Mealie | Tailscale-only | One replica, 10 GiB Longhorn PVC |
+| FreshRSS | Tailscale-only | One replica, 5 GiB Longhorn PVC |
 | Grafana | Tailscale plus retained Traefik route | Monitoring UI; storage is still ephemeral |
 
 ## Website Decision
@@ -118,10 +120,10 @@ is an honest consequence of the self-hosting requirement. A future independent
 static mirror can improve availability without changing the primary hosting
 location.
 
-## Homepage and Linkding
+## Private Daily-Use Applications
 
-The dashboard application is named **Homepage**. The bookmark application is
-**Linkding**.
+Homepage is the private entry point. Linkding, Mealie, and FreshRSS provide
+bookmarking, household meal planning, and RSS reading behind Tailscale.
 
 ### Homepage
 
@@ -137,6 +139,7 @@ Current deployment:
 - stateless
 - Tailscale only
 - configuration in Git, not edited in the Pod
+- ConfigMap projected as a directory so updates are not pinned by `subPath`
 - read-only discovery RBAC for the displayed Kubernetes resources
 - no broad cluster-admin ServiceAccount
 
@@ -167,6 +170,37 @@ Current deployment:
 An off-cluster backup and restore test are still required before the data is
 treated as recoverable.
 
+### Mealie
+
+Mealie stores recipes, meal plans, shopping lists, images, and its SQLite
+database on a 10 GiB Longhorn claim. It runs as UID/GID 911 under the restricted
+Pod Security Standard with a read-only root filesystem. Public registration is
+disabled, and the only ingress uses Tailscale.
+
+On a new volume, sign in with the upstream first-run account and immediately
+change its email and password:
+
+```text
+Username: changeme@example.com
+Password: MyPassword
+```
+
+Use Mealie's supported backup export and copy it off-cluster before treating
+the recipe library as recoverable.
+
+### FreshRSS
+
+FreshRSS stores configuration, subscriptions, users, and SQLite data on a 5 GiB
+Longhorn claim. An init container creates the administrator from Azure Key
+Vault, and the built-in cron refreshes feeds twice each hour. The Google
+Reader-compatible API is enabled for mobile clients.
+
+The official FreshRSS image initializes Apache, permissions, and cron as root.
+Its namespace therefore enforces the `baseline` Pod Security Standard while
+auditing and warning against `restricted`; the Pod drops all capabilities
+except the small set required for ownership and Apache worker identity changes.
+It has no Kubernetes API token and is reachable only through Tailscale.
+
 ## Optional Future Workloads
 
 No additional application is required to complete the current platform. If the
@@ -177,8 +211,6 @@ and operational cost.
 |---|---|---|---|
 | Gatus or Uptime Kuma | Friendly service status | Low/medium | Complements, rather than replaces, Prometheus |
 | ntfy | Alert delivery | Medium | Keep registration and administration private |
-| Mealie | Household recipes and meal planning | Medium | Requires tested SQLite backup and restore |
-| FreshRSS or Miniflux | Technical news/RSS | Medium | Small footprint; requires backed-up state |
 | NetBox | Network source of truth | Medium/high | More useful as VLAN, rack, circuit, and IPAM data grows |
 
 ## Applications to Delay
@@ -202,9 +234,9 @@ current cluster capacity.
 
 ### Public administrative dashboards
 
-Do not publicly expose Homepage, Linkding administration, Longhorn UI, Proxmox,
-or internal observability merely because Traefik and a wildcard certificate
-make it easy.
+Do not publicly expose Homepage, Linkding, Mealie, FreshRSS, Longhorn UI,
+Proxmox, or internal observability merely because Traefik and a wildcard
+certificate make it easy.
 
 ## Standard Application Definition of Done
 
@@ -231,8 +263,8 @@ Every new application must have:
 4. Configure an off-cluster Longhorn backup target and prove Linkding restore.
 5. Prove a clean rebuild and record measured recovery results.
 6. Add alert delivery and update automation.
-7. Add another stateful application only after the same backup standard can be
-   met.
+7. Add backup and restore procedures for Mealie and FreshRSS before relying on
+   their state.
 
 ## References
 
@@ -245,4 +277,5 @@ Every new application must have:
 - [Homepage Kubernetes installation](https://gethomepage.dev/installation/k8s/)
 - [Linkding installation](https://linkding.link/installation/)
 - [Mealie installation](https://docs.mealie.io/documentation/getting-started/installation/installation-checklist/)
+- [FreshRSS Docker deployment](https://github.com/FreshRSS/FreshRSS/blob/edge/Docker/README.md)
 - [Paperless-ngx setup](https://docs.paperless-ngx.com/setup/)

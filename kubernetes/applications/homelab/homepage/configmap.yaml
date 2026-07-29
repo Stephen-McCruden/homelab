@@ -40,6 +40,20 @@ data:
 
   services.yaml: |
     - Applications:
+        - Mealie:
+            icon: mealie.png
+            href: https://mealie.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}
+            description: Recipes, meal plans, and shopping lists
+            namespace: mealie
+            app: mealie
+
+        - FreshRSS:
+            icon: freshrss.png
+            href: https://freshrss.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}
+            description: Private RSS reader
+            namespace: freshrss
+            app: freshrss
+
         - Linkding:
             icon: linkding.png
             href: https://linkding.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}

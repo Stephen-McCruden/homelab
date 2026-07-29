@@ -278,6 +278,9 @@ grafana-admin-password
 letsencrypt-production-account-key
 linkding-superuser-name
 linkding-superuser-password
+freshrss-admin-email
+freshrss-admin-password
+freshrss-api-password
 tailscale-operator-client-id
 tailscale-operator-client-secret
 ```
@@ -313,8 +316,8 @@ www.<PUBLIC_DOMAIN>
 preview.<PUBLIC_DOMAIN>
 ```
 
-Grafana can retain a public route during migration, but Homepage and Linkding
-use Tailscale and do not need public records.
+Grafana can retain a public route during migration, but Homepage, Linkding,
+Mealie, and FreshRSS use Tailscale and do not need public records.
 
 ## Tailscale
 
@@ -326,8 +329,8 @@ Before Flux installs the operator:
    Services, Devices, and Auth Keys write permissions, scoped to
    `tag:k8s-operator`.
 4. Store its client ID and secret in Azure Key Vault using the names above.
-5. Replace the tailnet domain in the Homepage Deployment and customize the
-   private service links.
+5. Replace the tailnet domain in the Homepage, Mealie, and FreshRSS
+   Deployments, then customize the private service links.
 
 The OAuth secret is shown only once when created. Store it before leaving the
 credential page and never commit it.

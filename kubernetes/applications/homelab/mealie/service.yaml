@@ -1,0 +1,24 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mealie/service.yaml
+# PURPOSE: Expose Mealie internally for the Tailscale ingress proxy.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mealie
+  namespace: mealie
+  labels:
+    app.kubernetes.io/name: mealie
+    app.kubernetes.io/part-of: homelab
+spec:
+  type: ClusterIP
+
+  selector:
+    app.kubernetes.io/name: mealie
+
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

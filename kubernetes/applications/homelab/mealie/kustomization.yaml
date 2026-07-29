@@ -1,0 +1,14 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mealie/kustomization.yaml
+# PURPOSE: Deploy Mealie and its private Tailscale route through Flux.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - persistentvolumeclaim.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml

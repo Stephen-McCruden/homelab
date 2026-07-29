@@ -227,6 +227,9 @@ grafana-admin-password
 letsencrypt-production-account-key
 linkding-superuser-name
 linkding-superuser-password
+freshrss-admin-email
+freshrss-admin-password
+freshrss-api-password
 tailscale-operator-client-id
 tailscale-operator-client-secret
 ```
@@ -240,6 +243,7 @@ Expected generated Secrets:
 | `grafana-admin-credentials` | `monitoring` | External Secrets |
 | `letsencrypt-production-account-key-managed` | `cert-manager` | External Secrets |
 | `linkding-bootstrap-credentials` | `linkding` | External Secrets |
+| `freshrss-bootstrap-credentials` | `freshrss` | External Secrets |
 | `operator-oauth` | `tailscale` | External Secrets |
 
 Verify readiness without returning values:
@@ -309,6 +313,22 @@ linkding-superuser-password
 
 These are bootstrap credentials, not a backup of Linkding's SQLite database.
 Back up and test restoration of the application data separately.
+
+## FreshRSS Bootstrap Credentials
+
+FreshRSS uses these Key Vault entries during its idempotent first-run
+installation:
+
+```text
+freshrss-admin-email
+freshrss-admin-password
+freshrss-api-password
+```
+
+The password and API password should be independent generated values. The
+resulting Kubernetes Secret is consumed only by the initialization container;
+the running web container does not need the bootstrap credentials. These
+values do not replace backup of the FreshRSS data volume.
 
 ## Administrative Kubeconfig
 

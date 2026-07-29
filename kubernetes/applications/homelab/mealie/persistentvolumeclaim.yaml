@@ -1,0 +1,22 @@
+# FILE PATH:
+# kubernetes/applications/homelab/mealie/persistentvolumeclaim.yaml
+# PURPOSE: Persist Mealie's SQLite database, recipes, images, and exports.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mealie-data
+  namespace: mealie
+  labels:
+    app.kubernetes.io/name: mealie
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  storageClassName: longhorn
+  volumeMode: Filesystem
+
+  resources:
+    requests:
+      storage: 10Gi
