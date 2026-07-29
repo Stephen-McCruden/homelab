@@ -25,7 +25,7 @@ deliberately interactive security controls.
 | Kubernetes cluster | Ansible and kubeadm | One control plane, two workers, Cilium networking, and secure kubelet serving certificates |
 | GitOps control plane | Ansible and Flux | Flux bootstrap, SOPS key provisioning, and reconciliation gates |
 | Shared platform | Flux | cert-manager, External Secrets, Longhorn, MetalLB, Prometheus, Alertmanager, Grafana, Tailscale Operator, Traefik, kubelet CSR approver, and Metrics Server |
-| Applications | Flux | Public website, private Homepage dashboard, and Longhorn-backed Linkding |
+| Applications | Flux | Public website plus private Homepage, Linkding, Mealie, and FreshRSS services |
 
 The included example topology uses one control-plane VM and two worker VMs
 placed across three Proxmox nodes. VM placement, sizing, addresses, DNS,
@@ -46,11 +46,11 @@ The following cold-path fixes are encoded in `main`:
 - Flux separates the application-critical dependency path from the node-metrics
   path.
 - Longhorn provides a two-replica default StorageClass for persistent
-  workloads; Linkding currently uses a 5 GiB claim.
-- External Secrets restores ACME, Grafana, Linkding, and Tailscale credentials
-  from Azure Key Vault.
+  workloads; Linkding, Mealie, and FreshRSS use `ReadWriteOnce` claims.
+- External Secrets restores ACME, FreshRSS, Grafana, Linkding, and Tailscale
+  credentials from Azure Key Vault.
 - The Tailscale Operator provides private HTTPS access to Homepage, Linkding,
-  and Grafana.
+  Mealie, FreshRSS, and Grafana.
 - Traefik uses fixed NodePorts so router rules survive Service recreation.
 - Flux image automation promotes immutable preview and production website
   images through Git.

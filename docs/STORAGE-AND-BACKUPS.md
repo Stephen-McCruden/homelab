@@ -32,7 +32,7 @@ backup target outside the Kubernetes cluster.
 | Data locality | Best effort |
 | Storage reserve | 30% of each default disk |
 | Minimum free space | 25% |
-| Current PVC consumer | Linkding, 5 GiB `ReadWriteOnce` |
+| Current PVC consumers | Linkding 5 GiB, Mealie 10 GiB, FreshRSS 5 GiB; all `ReadWriteOnce` |
 | Off-cluster backup target | Not configured |
 | Restore proof | Not completed |
 
@@ -111,10 +111,13 @@ Initial allocations:
 | Grafana | 5-10 GiB |
 | Loki | 30-50 GiB, governed by retention |
 | Linkding | 2-5 GiB |
+| Mealie | 10 GiB initially |
+| FreshRSS | 5 GiB initially |
 
-Linkding already requests 5 GiB. Prometheus, Alertmanager, and Grafana remain
-ephemeral until their Helm values are migrated. Size every claim from measured
-usage and retention requirements, not only available capacity.
+Linkding, Mealie, and FreshRSS already request persistent storage. Prometheus,
+Alertmanager, and Grafana remain ephemeral until their Helm values are
+migrated. Size every claim from measured usage and retention requirements, not
+only available capacity.
 
 ## Backup Target
 
@@ -141,8 +144,9 @@ Volume backups alone may not be application-consistent. For databases:
 - retain the matching application version and restore procedure
 - test the restore into an isolated namespace
 
-For SQLite applications such as Linkding, either stop writes for a consistent
-copy or use the application's supported backup/export mechanism.
+For SQLite applications such as Linkding, Mealie, and FreshRSS, either stop
+writes for a consistent copy or use the application's supported backup/export
+mechanism.
 
 ## Recovery Objectives
 
@@ -151,7 +155,7 @@ Define per workload:
 | Class | Example | Initial RPO | Initial RTO |
 |---|---|---:|---:|
 | Rebuildable | Homepage, static website | Git commit | 30-60 minutes |
-| Operational | Grafana config, Linkding | 24 hours | 2-4 hours |
+| Operational | Grafana config, Linkding, Mealie, FreshRSS | 24 hours | 2-4 hours |
 | Important personal data | Paperless, photos | 1-6 hours | 4-12 hours |
 
 These are proposed targets. Replace them with measured restore results.

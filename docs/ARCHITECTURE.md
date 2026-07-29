@@ -134,7 +134,7 @@ The application-critical branch contains:
 - runtime secret synchronization
 - ACME issuers and wildcard certificate
 - Tailscale private ingress
-- Grafana, Homepage, Linkding, and the public website
+- Grafana, Homepage, Linkding, Mealie, FreshRSS, and the public website
 
 The node-metrics branch exists because secure kubelet serving certificates have
 a bootstrap dependency:
@@ -233,6 +233,9 @@ Current Azure Key Vault values:
 - `letsencrypt-production-account-key`
 - `linkding-superuser-name`
 - `linkding-superuser-password`
+- `freshrss-admin-email`
+- `freshrss-admin-password`
+- `freshrss-api-password`
 - `tailscale-operator-client-id`
 - `tailscale-operator-client-secret`
 
@@ -254,6 +257,8 @@ Current state:
 | Alertmanager data | Ephemeral |
 | Grafana data | Ephemeral |
 | Linkding data | 5 GiB Longhorn PVC, two replicas |
+| Mealie data | 10 GiB Longhorn PVC, two replicas |
+| FreshRSS data | 5 GiB Longhorn PVC, two replicas |
 | Homepage and website | Stateless and reproducible from Git |
 
 Longhorn is installed with two replicas and a `Retain` reclaim policy. It
