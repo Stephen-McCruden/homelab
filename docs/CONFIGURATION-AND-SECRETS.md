@@ -230,6 +230,8 @@ linkding-superuser-password
 freshrss-admin-email
 freshrss-admin-password
 freshrss-api-password
+vikunja-database-password
+vikunja-service-secret
 tailscale-operator-client-id
 tailscale-operator-client-secret
 ```
@@ -244,6 +246,7 @@ Expected generated Secrets:
 | `letsencrypt-production-account-key-managed` | `cert-manager` | External Secrets |
 | `linkding-bootstrap-credentials` | `linkding` | External Secrets |
 | `freshrss-bootstrap-credentials` | `freshrss` | External Secrets |
+| `vikunja-credentials` | `vikunja` | External Secrets |
 | `operator-oauth` | `tailscale` | External Secrets |
 
 Verify readiness without returning values:
@@ -329,6 +332,20 @@ The password and API password should be independent generated values. The
 resulting Kubernetes Secret is consumed only by the initialization container;
 the running web container does not need the bootstrap credentials. These
 values do not replace backup of the FreshRSS data volume.
+
+## Vikunja Credentials
+
+Vikunja and its PostgreSQL database use these Key Vault entries:
+
+```text
+vikunja-database-password
+vikunja-service-secret
+```
+
+Both values should be independently generated random values. The database
+password initializes PostgreSQL and authenticates Vikunja. The service secret
+signs Vikunja authentication tokens and must remain stable across restarts and
+restores.
 
 ## Administrative Kubeconfig
 

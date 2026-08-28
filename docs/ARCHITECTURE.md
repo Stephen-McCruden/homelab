@@ -238,6 +238,8 @@ Current Azure Key Vault values:
 - `freshrss-admin-email`
 - `freshrss-admin-password`
 - `freshrss-api-password`
+- `vikunja-database-password`
+- `vikunja-service-secret`
 - `tailscale-operator-client-id`
 - `tailscale-operator-client-secret`
 

@@ -1,0 +1,9 @@
+# FILE PATH: kubernetes/applications/homelab/vikunja/namespace.yaml
+# PURPOSE: Isolate Vikunja and its PostgreSQL database.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vikunja
+  labels:
+    app.kubernetes.io/part-of: homelab

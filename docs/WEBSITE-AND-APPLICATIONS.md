@@ -13,6 +13,7 @@ for adding another workload to this three-node cluster.
 | Linkding | Tailscale-only | One replica, 5 GiB Longhorn PVC |
 | Mealie | Tailscale-only | One replica, 10 GiB Longhorn PVC |
 | FreshRSS | Tailscale-only | One replica, 5 GiB Longhorn PVC |
+| Vikunja | Tailscale-only | One replica, PostgreSQL, 18 GiB across two Longhorn PVCs |
 | Grafana | Tailscale plus retained Traefik route | Monitoring UI; 5 GiB Longhorn PVC |
 
 ## Website Decision
@@ -122,8 +123,9 @@ location.
 
 ## Private Daily-Use Applications
 
-Homepage is the private entry point. Linkding, Mealie, and FreshRSS provide
-bookmarking, household meal planning, and RSS reading behind Tailscale.
+Homepage is the private entry point. Linkding, Mealie, FreshRSS, and Vikunja
+provide bookmarking, household meal planning, RSS reading, and task management
+behind Tailscale.
 
 ### Homepage
 
@@ -234,7 +236,7 @@ current cluster capacity.
 
 ### Public administrative dashboards
 
-Do not publicly expose Homepage, Linkding, Mealie, FreshRSS, Longhorn UI,
+Do not publicly expose Homepage, Linkding, Mealie, FreshRSS, Vikunja, Longhorn UI,
 Proxmox, or internal observability merely because Traefik and a wildcard
 certificate make it easy.
 

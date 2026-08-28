@@ -1,0 +1,132 @@
+# FILE PATH: kubernetes/applications/homelab/vikunja/postgres-statefulset.yaml
+# PURPOSE: Run PostgreSQL for Vikunja on a Longhorn-backed volume.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vikunja-postgres
+  namespace: vikunja
+  labels:
+    app.kubernetes.io/name: vikunja-postgres
+    app.kubernetes.io/part-of: homelab
+spec:
+  serviceName: vikunja-postgres
+  replicas: 1
+  revisionHistoryLimit: 3
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vikunja-postgres
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vikunja-postgres
+        app.kubernetes.io/part-of: homelab
+
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - k8s-worker-01
+                      - k8s-worker-02
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: postgres
+          image: postgres:18.0-alpine@sha256:0b6698eaf9d5c65fd1b5ffe23cd27d2ad959feb1e3bc283a980c0c6d7ac66310
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: POSTGRES_DB
+              value: vikunja
+
+            - name: POSTGRES_USER
+              value: vikunja
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vikunja-credentials
+                  key: VIKUNJA_DATABASE_PASSWORD
+
+            - name: PGDATA
+              value: /var/lib/postgresql/18/docker
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+          startupProbe:
+            exec:
+              command:
+                - /usr/local/bin/pg_isready
+                - --host=127.0.0.1
+                - --username=vikunja
+                - --dbname=vikunja
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
+
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/pg_isready
+                - --host=127.0.0.1
+                - --username=vikunja
+                - --dbname=vikunja
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/pg_isready
+                - --host=127.0.0.1
+                - --username=vikunja
+                - --dbname=vikunja
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: vikunja-postgres-data

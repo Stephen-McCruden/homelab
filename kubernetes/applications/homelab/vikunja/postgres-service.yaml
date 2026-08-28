@@ -1,0 +1,20 @@
+# FILE PATH: kubernetes/applications/homelab/vikunja/postgres-service.yaml
+# PURPOSE: Give Vikunja a stable private endpoint for PostgreSQL.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vikunja-postgres
+  namespace: vikunja
+  labels:
+    app.kubernetes.io/name: vikunja-postgres
+    app.kubernetes.io/part-of: homelab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vikunja-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

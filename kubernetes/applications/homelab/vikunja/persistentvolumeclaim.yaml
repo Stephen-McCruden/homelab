@@ -1,0 +1,21 @@
+# FILE PATH: kubernetes/applications/homelab/vikunja/persistentvolumeclaim.yaml
+# PURPOSE: Persist Vikunja attachments and project backgrounds on Longhorn.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vikunja-files
+  namespace: vikunja
+  labels:
+    app.kubernetes.io/name: vikunja
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  storageClassName: longhorn
+  volumeMode: Filesystem
+
+  resources:
+    requests:
+      storage: 10Gi

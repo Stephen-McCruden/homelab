@@ -1,0 +1,21 @@
+# FILE PATH: kubernetes/applications/homelab/vikunja/postgres-persistentvolumeclaim.yaml
+# PURPOSE: Persist PostgreSQL data on replicated Longhorn storage.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vikunja-postgres-data
+  namespace: vikunja
+  labels:
+    app.kubernetes.io/name: vikunja-postgres
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  storageClassName: longhorn
+  volumeMode: Filesystem
+
+  resources:
+    requests:
+      storage: 8Gi

@@ -25,7 +25,7 @@ deliberately interactive security controls.
 | Kubernetes cluster | Ansible and kubeadm | One control plane, two workers, Cilium networking, and secure kubelet serving certificates |
 | GitOps control plane | Ansible and Flux | Flux bootstrap, SOPS key provisioning, and reconciliation gates |
 | Shared platform | Flux | cert-manager, External Secrets, Longhorn, MetalLB, Prometheus, Alertmanager, Loki, Alloy, Grafana, Tailscale Operator, Traefik, kubelet CSR approver, and Metrics Server |
-| Applications | Flux | Public website plus private Homepage, Linkding, Mealie, and FreshRSS services |
+| Applications | Flux | Public website plus private Homepage, Linkding, Mealie, FreshRSS, and Vikunja services |
 
 The included example topology uses one control-plane VM and two worker VMs
 placed across three Proxmox nodes. VM placement, sizing, addresses, DNS,
@@ -47,10 +47,10 @@ The following cold-path fixes are encoded in `main`:
   path.
 - Longhorn provides a two-replica default StorageClass for persistent
   workloads; application and observability state use `ReadWriteOnce` claims.
-- External Secrets restores ACME, FreshRSS, Grafana, Linkding, and Tailscale
+- External Secrets restores ACME, FreshRSS, Grafana, Linkding, Tailscale, and Vikunja
   credentials from Azure Key Vault.
 - The Tailscale Operator provides private HTTPS access to Homepage, Linkding,
-  Mealie, FreshRSS, and Grafana.
+  Mealie, FreshRSS, Vikunja, and Grafana.
 - Prometheus, Alertmanager, Grafana, Loki, and Alloy retain operational state
   on Longhorn; Alloy sends Kubernetes logs and events to Loki.
 - Traefik uses fixed NodePorts so router rules survive Service recreation.
