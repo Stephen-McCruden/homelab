@@ -65,7 +65,7 @@ spec:
               value: https://vikunja.tailda520f.ts.net/
 
             - name: VIKUNJA_SERVICE_ENABLEREGISTRATION
-              value: "true"
+              value: "false"
 
             - name: VIKUNJA_DATABASE_TYPE
               value: postgres
