@@ -68,12 +68,12 @@ data:
             namespace: monitoring
             app: grafana
 
-        - Loki Logs:
-            icon: loki.png
-            href: https://grafana.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}/explore
-            description: Search Kubernetes logs and events
-            namespace: monitoring
-            app: loki
+        - Vikunja:
+            icon: vikunja.png
+            href: https://vikunjaikunja.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}/explore
+            description: To do list and Kanban board
+            namespace: vikunja
+            app: vikunja
 
     - Infrastructure:
         - Proxmox pve1:
