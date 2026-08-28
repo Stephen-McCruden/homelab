@@ -70,7 +70,7 @@ data:
 
         - Vikunja:
             icon: vikunja.png
-            href: https://vikunjaikunja.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}/explore
+            href: https://vikunja.{{HOMEPAGE_VAR_TAILNET_DOMAIN}}/explore
             description: To do list and Kanban board
             namespace: vikunja
             app: vikunja
