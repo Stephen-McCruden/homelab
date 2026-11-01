@@ -51,7 +51,7 @@ spec:
           effect: NoSchedule
 
     defaultBackupStore:
-      backupTarget: "nfs://192.168.0.115:/src/nas/longhorn-backups"
+      backupTarget: "nfs://192.168.0.115:/srv/nas/longhorn-backups"
       pollInterval: 300
 
     persistence:
