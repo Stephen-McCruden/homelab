@@ -1,0 +1,33 @@
+# FILE PATH:
+# kubernetes/applications/homelab/longhorn-tailscale/ingress.yaml
+# PURPOSE: Expose the Longhorn UI privately through Tailscale.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: longhorn-tailscale
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/name: longhorn
+    app.kubernetes.io/part-of: homelab
+  annotations:
+    tailscale.com/proxy-class: homelab-ingress
+    tailscale.com/tags: tag:k8s
+
+spec:
+  ingressClassName: tailscale
+
+  tls:
+    - hosts:
+        - longhorn
+
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: longhorn-frontend
+                port:
+                  number: 80
